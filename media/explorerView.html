@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Snippet Tree Explorer</title>
+    <style>
+        :root {
+            --sne-indent: 14px;
+            --sne-icon-space: 18px;
+        }
+
+        body {
+            font-family: var(--vscode-font-family, sans-serif);
+            font-size: var(--vscode-font-size, 13px);
+            padding: 4px;
+            margin: 0;
+            background-color: var(--vscode-sideBar-background);
+            color: var(--vscode-sideBar-foreground);
+        }
+
+        ul {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+
+        .sne-folder,
+        .sne-file {
+            display: flex;
+            align-items: center;
+            height: 22px;
+            padding-left: var(--sne-indent);
+            cursor: default;
+        }
+
+        .sne-folder:hover,
+        .sne-file:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .sne-folder.drag-over {
+            background-color: var(--vscode-list-dropBackground, #005f5f30);
+        }
+
+        .sne-selected {
+            background-color: var(--vscode-list-activeSelectionBackground) !important;
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+
+        .sne-icon {
+            display: inline-block;
+            width: var(--sne-icon-space);
+            text-align: center;
+            margin-right: 4px;
+            color: var(--vscode-icon-foreground);
+        }
+
+        .sne-editable {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border: 1px solid transparent;
+            padding: 0 2px;
+        }
+
+        .sne-editable:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+        }
+
+        .sne-collapsed>ul {
+            display: none;
+        }
+
+        ul ul {
+            padding-left: var(--sne-indent);
+        }
+
+        .sne-context {
+            position: fixed;
+            background: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+            border: 1px solid var(--vscode-editorWidget-border);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+        }
+
+        .sne-context div {
+            padding: 4px 12px;
+            cursor: pointer;
+        }
+
+        .sne-context div:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+
+        .sne-collapsed>.sne-folder .sne-icon {
+            transform: rotate(-90deg);
+            transition: transform 0.15s ease;
+        }
+
+        .sne-folder .sne-icon {
+            transition: transform 0.15s ease;
+        }
+
+        .menu-item-disabled {
+            opacity: 0.4;
+            pointer-events: none;
+            cursor: default;
+        }
+
+        .sne-context hr {
+            border: none;
+            border-top: 1px solid var(--vscode-editorWidget-border);
+            margin: 4px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <ul id="sne-tree"></ul>
+    <div id="sne-error-dialog"></div>
+    <div id="sne-context-menu" class="sne-context" style="display: none;"></div>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+
+        class NodeItem {
+            constructor(tree, node, parentUl, isTopLevel) {
+                // tree ref
+                this.tree = tree;
+
+                // node
+                this.name = node.name;
+                this.fullPath = node.fullPath;
+                this.isFolder = node.isFolder;
+
+                // work-around for top tree folders
+                this.isTopLevel = isTopLevel;
+
+                // node in a parent's scope
+                this.init(parentUl)
+            }
+
+            init(parentUl) {
+                //
+                // Create 
+                //    LI >  DIV  >  SVG ICONS
+                //               >  SPAN 
+                //
+                const li = document.createElement('li');
+                if (this.isFolder) {
+                    li.classList.add('sne-collapsed');
+                }
+
+                // WRAPPER
+                const wrapper = document.createElement('div');
+                wrapper.className = this.isFolder ? 'sne-folder' : 'sne-file';
+                wrapper.draggable = !this.isTopLevel;
+
+                // SPAN - icons
+                const icon = document.createElement('span');
+                icon.className = 'sne-icon';
+                icon.innerHTML =
+                    this.isFolder ?
+                        '<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="M480-344 240-584l56-56 184 184 184-184 56 56-240 240Z"/></svg>'
+                        : '<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="#5f6368"><path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-120H640q-30 38-71.5 59T480-240q-47 0-88.5-21T320-320H200v120Zm280-120q38 0 69-22t43-58h168v-360H200v360h168q12 36 43 58t69 22ZM200-200h560-560Zm80-270h400v-80H280v80Zm0-140h400v-80H280v80Z"/></svg>';
+
+                const span = document.createElement('span');
+                span.className = 'sne-editable';
+                span.textContent = this.name;
+                span.contentEditable = false;
+
+                this.initSingleClickHandlers(li, wrapper, span);
+
+                this.initItemRename(wrapper, span);
+
+                //
+                // Drag & Drop
+                //
+                this.initDragAndDrop(wrapper, span);
+
+
+                //
+                // Complete UI tree creation
+                //
+                wrapper.appendChild(icon);
+                wrapper.appendChild(span);
+                li.appendChild(wrapper);
+                parentUl.appendChild(li);
+
+                // need to save
+                this.wrapper = wrapper;
+                this.li = li;
+
+                // save node in tree
+                this.tree.nodeMap.set(this.fullPath, this);
+            }
+
+            initDragAndDrop(wrapper, span) {
+                // Allow dragging only if not top-level folder
+                wrapper.ondragstart = (e) => {
+                    // const isTopLevel = !node.fullPath.includes('/');
+                    if (this.isFolder && this.isTopLevel) {
+                        e.preventDefault(); // prevent dragging top-level folders
+                        return;
+                    }
+                    e.dataTransfer.setData('text/plain', (this.isFolder ? "folder:" : "file:") + this.fullPath);
+                };
+
+                wrapper.ondragover = (e) => {
+                    // Allow drop only on folders
+                    if (this.isFolder) {
+                        e.preventDefault();
+                        wrapper.style.backgroundColor = 'var(--vscode-list-hoverBackground)';
+                    }
+                };
+
+                wrapper.ondragleave = () => {
+                    if (this.isFolder) {
+                        wrapper.style.backgroundColor = '';
+                    }
+                };
+
+                wrapper.ondrop = (e) => {
+                    e.preventDefault();
+                    wrapper.style.backgroundColor = '';
+
+                    const dragData = e.dataTransfer.getData('text/plain').split(":");
+
+                    const sourcePath = dragData[1];
+                    const isMovingFolder = dragData[0] === "folder"; // we need to know if we dnd folder or file
+
+                    // user could try to drop on a file 
+                    const targetPath = this.isFolder ? this.fullPath : this.fullPath.substring(0, targetPath.lastIndexOf('/'));
+
+                    if (this.isFolder && targetPath.startsWith(sourcePath)) {
+                        this.tree.showErrorDialog('Cannot move a parent folder into its own subfolder.');
+                        return;
+                    }
+
+                    if (!isMovingFolder) {
+                        const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+                        if (baseSource === targetPath) {
+                            // User dropped file to the same folder — no need to move
+                            return;
+                        }
+                    }
+
+
+                    if (sourcePath && targetPath && sourcePath !== targetPath) {
+                        //
+                        // Targe path should always be a folder
+                        // while source code be a file OR folder
+                        //
+                        this.tree.postCommand('move', { sourcePath, targetPath, isFolder: isMovingFolder })
+                            .then(() => {
+                                this.tree.moveTreeNodeUI(sourcePath, targetPath);
+                            })
+                            .catch(err => {
+                                this.tree.showErrorDialog(err);
+                            });
+                    }
+                };
+            }
+
+            //
+            // Init rename functionality
+            //
+            initItemRename(wrapper, span) {
+                //
+                // Prevent multi-line input
+                //
+                span.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        span.blur(); // optionally end editing on Enter
+                    }
+
+                    if (e.key === 'Esc' && span.contentEditable) {
+                        e.preventDefault();
+                        span.contentEditable = false;
+                        span.textContent = this.name;
+                    }
+                };
+
+                //
+                // EDIT DONE
+                //
+                span.onblur = () => {
+                    if (!span.contentEditable)
+                        return;
+                    // non editable content anymore
+                    const newName = span.textContent.trim();
+                    span.contentEditable = false;
+
+                    // Nothing change ?
+                    if (newName !== this.name) {
+                        const parentPath = this.fullPath.substring(0, this.fullPath.lastIndexOf('/'));
+
+                        const error = this.tree._validateRename(parentPath, newName);
+                        // INVALID FileName
+                        if (error) {
+                            this.tree.showErrorDialog(error);
+                            span.textContent = this.name;
+                            return;
+                        }
+
+                        //
+                        // Post command to rename, and handle result
+                        //
+                        this.tree.postCommand(
+                            'rename',
+                            {
+                                oldPath: this.fullPath,
+                                newName
+                            }
+                        ).then((data) => {
+                            const oldPath = this.fullPath;
+                            this.name = newName;
+                            this.fullPath = parentPath + '/' + newName;
+
+                            // Update span dataset (no need to update ??? or trim() and back needed ??? )
+                            span.textContent = newName;
+
+                            // Update nodeMap key
+                            const nodeItem = this.tree.nodeMap.get(oldPath);
+                            this.tree.nodeMap.set(this.fullPath, nodeItem);
+                            this.tree.nodeMap.delete(oldPath);
+
+                            if (this.isFolder) {
+                                this.tree._updateSubtreePaths(oldPath, this.fullPath);
+                            }
+                        })
+                            .catch(err => {
+                                this.tree.showErrorDialog(err);
+                                span.textContent = this.name; // revert name change
+                            });
+                    }
+                };
+            }
+
+            //
+            // Context Menu
+            // Select/focus item
+            // Open snippet
+            //
+            initSingleClickHandlers(li, wrapper, span) {
+                //
+                // On click -> select & context menu
+                //
+                wrapper.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    this.tree.selectItem(this);
+                    const x = e.clientX; // + window.scrollX;
+                    const y = e.clientY; // + window.scrollY;
+                    this.tree.showContextMenu(x, y, this, li);
+                };
+
+                wrapper.onclick = (e) => {
+                    this.tree.selectItem(this);
+                    //
+                    // Collapse/expand folder
+                    //
+                    if (this.isFolder) {
+                        e.stopPropagation();
+                        if (li.classList.contains('sne-collapsed')) {
+                            li.classList.remove('sne-collapsed');
+                            if (!li.querySelector('ul')) {
+                                const ul = document.createElement('ul');
+                                li.appendChild(ul);
+                                this.tree.postCommand('expand', { path: this.fullPath })
+                                    .then((data) => {
+                                        this.tree.renderTree(data, this.fullPath);
+                                    })
+                                    .catch(err => {
+                                        this.tree.showErrorDialog(err);
+                                    });
+                            }
+                        } else {
+                            li.classList.add('sne-collapsed');
+                        }
+                    }
+                };
+
+                //
+                // Double-click - to open file
+                //
+                span.ondblclick = () => {
+                    // Select item anyway
+                    this.tree.selectItem(this);
+
+                    if (!this.isFolder) {
+                        vscode.postMessage({ type: 'openFile', path: this.fullPath });
+                    } else {
+                        // Note: it was an idea to make folder name editable on dbl click
+                        //       but indeed it is not comfortable at all
+                        // span.contentEditable = true;
+                        span.focus();
+                    }
+                };
+            }
+
+            toggleSelect(enable) {
+                if (enable) {
+                    this.wrapper.classList.add('sne-selected');
+                } else {
+                    this.wrapper.classList.remove('sne-selected');
+                }
+            }
+
+            toggleExpand(expanded) {
+                // Expand the folder if necessary
+                if (expanded) {
+                    this.li.classList.remove('sne-collapsed');
+                } else {
+                    this.li.classList.add('sne-collapsed');
+                }
+            }
+
+            getUl() {
+                return this.li.querySelector('ul');
+            }
+
+            getOrCreateUl() {
+                let ul = this.getUl();
+                if (!ul) {
+                    ul = document.createElement('ul');
+                    this.li.appendChild(ul);
+                }
+                return ul;
+            }
+
+            destroy() {
+                this.li.remove();
+            }
+        }
+
+        class SnippetTreeView {
+            constructor(containerId) {
+                this.root = document.getElementById(containerId);
+                this.contextMenu = document.getElementById('sne-context-menu');
+                this.nodeMap = new Map(); // fullPath => <li>
+                this.selectedNode = null;
+
+                document.addEventListener('click', () => {
+                    this.hideContextMenu();
+                });
+
+                // callbacks API
+                this.callbackMap = new Map();
+                this.callbackCounter = 1;
+
+                // context menu actions
+                this.contextAction = '';
+                this.contextActionTime = 0;
+
+                this.init();
+            }
+
+            init() {
+                // hide context menu on scroll
+                window.addEventListener('scroll', () => {
+                    this.hideContextMenu();
+                }, true);
+
+
+                window.addEventListener('click', () => {
+                    this.hideContextMenu();
+                }, true);
+
+            }
+
+            postCommand(command, data = {}) {
+                return new Promise((resolve, reject) => {
+                    const callbackId = `cb_${Date.now()}_${this.callbackCounter++}`;
+                    this.callbackMap.set(callbackId, { resolve, reject });
+
+                    vscode.postMessage({
+                        type: command,
+                        ...data,
+                        callbackId
+                    });
+                });
+            }
+
+            //
+            //  Check that file or folder does not exits
+            //
+            _validateRename(parentPath, newName) {
+                //
+                // NOT EMPTY
+                //
+                if (!newName || newName.trim() === '') {
+                    return 'Name cannot be empty';
+                }
+                //
+                // Does not contain folder path
+                //
+                if (newName.includes('/')) {
+                    return "Name cannot contain '/'";
+                }
+                //
+                // Filename exists
+                //
+                const newFullPath = parentPath + '/' + newName;
+                if (this.nodeMap.has(newFullPath)) {
+                    return 'An item with this name already exists';
+                }
+                return null;
+            }
+
+            _updateSubtreePaths(oldBase, newBase) {
+                for (const [path, nodeItem] of this.nodeMap.entries()) {
+                    if (path.startsWith(oldBase + '/')) {
+                        console.log("_updateSubtreePaths " + path);
+                        const newPath = newBase + path.substring(oldBase.length);
+                        nodeItem.fullPath = newPath;
+                        this.nodeMap.set(newPath, nodeItem);
+                        this.nodeMap.delete(path);
+                    }
+                }
+            }
+
+            addFolder() {
+                this._expandAndAddNode(true);
+            }
+
+            addSnippet() {
+                this._expandAndAddNode(false);
+            }
+
+            _expandAndAddNode(isFolder) {
+                const selected = this.selectedNode;
+                if (!selected) {
+                    this.showErrorDialog("Please select a folder first.");
+                    return;
+                }
+
+                const selectedPath = selected.fullPath;
+                const isSelectedFolder = selected.isFolder;
+                const parentPath = isSelectedFolder ? selectedPath : selectedPath.substring(0, selectedPath.lastIndexOf('/'));
+
+                const parentLiEl = this.nodeMap.get(parentPath);
+                const subtreeLoaded = parentLiEl?.querySelector('ul');
+                // If path not loaded at all yet
+                if (!subtreeLoaded) {
+                    console.log("NOT LOADED SEND CLICL");
+                    // send double click to expand folder
+                    const wrapper = parentLiEl?.querySelector('.sne-folder');
+                    if (wrapper && parentLiEl?.classList.contains('sne-collapsed')) {
+                        console.log("FOUND WRAPPER SEND DOUBLE CLICK");
+                        // Emulate double-click to expand and load contents
+                        wrapper.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    }
+
+                    //
+                    // add an empty node item in a few milliseconds
+                    //
+                    setTimeout(() => this._addEmptyEditableNode(parentPath, isFolder), 200);
+                    return;
+                }
+
+
+                // Expand if necessary
+                if (parentLiEl?.classList.contains('sne-collapsed')) {
+                    parentLiEl.classList.remove('sne-collapsed');
+                }
+
+                /* May be we should add it, if folder is empty
+                if (!parentLiEl.querySelector('ul')) {
+                   const ul = document.createElement('ul');
+                    parentLiEl.appendChild(ul);
+                }
+                */
+
+                // We have an animation to expand folder
+                setTimeout(() => this._addEmptyEditableNode(parentPath, isFolder), 100);
+
+            }
+
+
+            _addEmptyEditableNode(parentPath, isFolder) {
+                // Ensure ul exists (path could be empty)
+                const ul = this.nodeMap.get(parentPath).querySelector('ul') || (() => {
+                    const u = document.createElement('ul');
+                    this.nodeMap.get(parentPath).appendChild(u);
+                    return u;
+                })();
+
+                // Remove any previous empty node
+                if (ul.querySelector('.sne-editing')) {
+                    ul.querySelector('.sne-editing').remove();
+                }
+
+                const tempFullPath = parentPath + '/';
+                const node = {
+                    name: '',
+                    fullPath: tempFullPath,
+                    isFolder: isFolder
+                };
+
+                const li = document.createElement('li');
+                const wrapper = document.createElement('div');
+                wrapper.className = (isFolder ? 'sne-folder' : 'sne-file') + ' sne-editing';
+
+                const icon = document.createElement('span');
+                icon.className = 'sne-icon';
+                icon.innerHTML = isFolder ? '> ' : '= ';
+
+                const span = document.createElement('span');
+                span.className = 'sne-editable';
+                span.contentEditable = true;
+                span.textContent = '';
+                span.dataset.fullPath = tempFullPath;
+                span.dataset.isFolder = String(isFolder);
+
+                const error = document.createElement('div');
+                error.style.color = 'var(--vscode-errorForeground)';
+                error.style.fontSize = '11px';
+                error.style.padding = '0 2px';
+
+                function cleanup() {
+                    li.remove();
+                }
+
+                let self = this;
+                function handleValidate() {
+                    const newName = span.textContent.trim();
+
+                    let errorName = self._validateRename(parentPath, newName);
+
+                    if (errorName) {
+                        error.textContent = errorName;
+                        return false;
+                    }
+
+                    // clear error if new name is valid
+                    error.textContent = '';
+                    return true;
+                }
+
+                async function handleCreate() {
+
+                    console.log("HANDLE CREATE  !!!!" + span.textContent.trim());
+
+                    const newName = span.textContent.trim();
+                    if (!handleValidate()) {
+                        if (newName === '') cleanup();
+                        return;
+                    }
+
+                    if (!span.contentEditable) {
+                        return;
+                    }
+
+                    span.contentEditable = false;
+
+                    const newFullPath = parentPath + '/' + newName;
+
+                    try {
+                        await tree.postCommand(isFolder ? "createFolder" : "createSnippet", {
+                            path: newFullPath
+                        });
+
+                        cleanup();
+                        tree.renderNode({
+                            name: newName,
+                            fullPath: newFullPath,
+                            isFolder: isFolder
+                        }, ul, false);
+
+                    } catch (err) {
+                        cleanup();
+                        tree.showErrorDialog(err.message || "Failed to create item.");
+                    }
+                }
+
+                span.oninput = () => {
+                    handleValidate();
+                };
+
+                span.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        span.blur();
+                    } else {
+                        handleValidate();
+                    }
+                };
+
+                span.onblur = () => {
+                    handleCreate();
+                };
+
+                wrapper.appendChild(icon);
+                wrapper.appendChild(span);
+                li.appendChild(wrapper);
+                li.appendChild(error);
+                ul.appendChild(li);
+                span.focus();
+            }
+
+
+            hideContextMenu() {
+                this.contextMenu.style.display = 'none';
+            }
+
+            showContextMenu(x, y, node, li) {
+                this.contextMenu.innerHTML = ''; // clear previous
+                //
+                // Do not show context menu for top folder
+                //
+                if (node.isTopLevel)
+                    return;
+
+                const addSeparator = () => {
+                    const hr = document.createElement('hr');
+                    hr.className = 'sne-separator';
+                    this.contextMenu.appendChild(hr);
+                };
+
+                const addItem = (label, handler, disabled = false) => {
+                    const div = document.createElement('div');
+                    div.textContent = label;
+
+                    if (disabled) {
+                        div.classList.add('menu-item-disabled');
+                    }
+
+                    div.onclick = () => {
+                        this.hideContextMenu();
+                        handler(disabled);
+                    };
+                    this.contextMenu.appendChild(div);
+                };
+
+                if (!node.isFolder) {
+                    addItem('Open', () => vscode.postMessage({ type: 'openFile', path: node.fullPath }));
+                    addItem('Open as text', () => vscode.postMessage({ type: 'openText', path: node.fullPath }));
+                    addSeparator();
+                }
+
+                addItem('Copy', () => {
+                    this.contextAction = "copy:" + (node.isFolder? "folder:": "file:") + node.fullPath;
+                    this.contextActionTime = Date.now();
+                });
+                addItem('Cut', () => {
+                    this.contextActionTime = Date.now();
+                    this.contextAction = "move:" + (node.isFolder? "folder:": "file:") + node.fullPath;
+                });
+                addItem('Paste', (disabled) => {
+                    // Do nothing if item disabled
+                    if (!disabled && this.contextAction != "") {
+                        //
+                        // move:file:/path/to/file.snippet
+                        //
+                        // copy:folder:/path/to/folder/name
+                        //
+                        const tmp = this.contextAction.split(":");
+                        if (tmp.length === 3) {
+                            this.handlePasteCommand(
+                                tmp[0], tmp[2], tmp[1] === "folder",
+                                node.fullPath, node.isFolder);
+                        }
+                    }
+
+                    this.contextAction = "";
+                    this.contextActionTime = 0;
+                }, (Date.now() - this.contextActionTime > 60000));
+
+                addSeparator();
+
+                addItem('Rename', () => {
+                    const span = li.querySelector('.sne-editable');
+                    span.contentEditable = true;
+                    span.focus();
+                });
+
+                addItem('Delete', () => {
+                    console.log("DELETE " + node.fullPath);
+                    this.postCommand('remove', { fullPath: node.fullPath, name: node.name, isFolder: node.isFolder })
+                        .then((data) => {
+                            if (data.path && data.path != '') {
+                                // remove ui
+                                node.destroy();
+                                // remove reference
+                                this.nodeMap.delete(node.fullPath);
+                                // remove sub-node references
+                                // ui part should be removed on node.destroy
+                                if (node.isFolder) {
+                                    for (const [path, nodeItem] of this.nodeMap.entries()) {
+                                        if (path.startsWith(node.fullPath + '/')) {
+                                            console.log("remove " + path);
+                                            this.nodeMap.delete(path);
+                                        }
+                                    }
+                                }
+
+                            }
+                        })
+                        .catch(err => {
+                            console.log("GOT A ERROR : IN VIEW: ", err)
+                            // An mepty error could happen if user did not confirmed removal
+                            if (err && err != '') {
+                                // Show error message
+                                this.showErrorDialog(err);
+                            }
+                        });
+                });
+
+                this.contextMenu.style.left = `${x}px`;
+                this.contextMenu.style.top = `${y}px`;
+                this.contextMenu.style.display = 'block';
+            }
+
+            handlePasteCommand(command, sourcePath, isMovingFolder, dstPath, isDstFolder) {
+
+                // user could try to drop on a file 
+                const targetPath = isDstFolder ? dstPath : dstPath.substring(0, targetPath.lastIndexOf('/'));
+
+                if (isMovingFolder && targetPath.startsWith(sourcePath)) {
+                    this.showErrorDialog(`Cannot ${command} a parent folder into its own subfolder.`);
+                    return;
+                }
+
+                if (!isMovingFolder) {
+                    const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+                    if (baseSource === targetPath) {
+                        // User dropped file to the same folder — no need to move
+                        //
+                        // TODO(2222): handle copy to the same folder
+                        // 
+                        return;
+                    }
+                }
+
+
+                if (sourcePath && targetPath && sourcePath !== targetPath) {
+                    //
+                    // Targe path should always be a folder
+                    // while source code be a file OR folder
+                    //
+                    this.postCommand(command, { sourcePath, targetPath, isFolder: isMovingFolder })
+                        .then(() => {
+                            if (command === 'move') {
+                                this.moveTreeNodeUI(sourcePath, targetPath);
+                            }
+                            else if (command === "copy") {
+                                const tmp = sourcePath.split("/");
+                                const name = tmp[tmp.length - 1];
+
+
+                                console.log("COPY SRC: " + sourcePath);
+                                console.log("COPY NAME: " + name);
+                                console.log("COPY SDT: " + targetPath);
+
+                                // it is 100% folder
+                                const targetNode = this.nodeMap.get(targetPath);
+                                // getUl() is null ? => folder was not expanded
+                                if (targetNode && targetNode.getUl()) {
+                                    console.log("COPY - DRAW RENDER NODE ");
+                                    this.renderNode({
+                                        name,
+                                        fullPath: targetPath + "/" + name,
+                                        isFolder: isMovingFolder,
+                                    },
+                                    targetNode.getUl());
+                                }
+                                
+                            }
+                        })
+                        .catch(err => {
+                            this.showErrorDialog(err);
+                        });
+                }
+            }
+
+            showErrorDialog(errorMessage) {
+                // Remove existing dialog if present
+                const existing = document.getElementById('sne-error-dialog');
+                if (existing) existing.remove();
+
+                const dialog = document.createElement('div');
+                dialog.id = 'sne-error-dialog';
+                dialog.style.position = 'fixed';
+                dialog.style.top = '50%';
+                dialog.style.left = '50%';
+                dialog.style.transform = 'translate(-50%, -50%)';
+                dialog.style.background = 'var(--vscode-editorWidget-background)';
+                dialog.style.color = 'var(--vscode-editorWidget-foreground)';
+                dialog.style.border = '1px solid var(--vscode-editorWidget-border)';
+                dialog.style.padding = '16px';
+                dialog.style.zIndex = '10000';
+                dialog.style.minWidth = '280px';
+                dialog.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.4)';
+                dialog.style.borderRadius = '6px';
+
+                const message = document.createElement('div');
+                message.textContent = errorMessage;
+                message.style.marginBottom = '12px';
+                dialog.appendChild(message);
+
+                const button = document.createElement('button');
+                button.textContent = 'OK';
+                button.style.padding = '4px 12px';
+                button.style.background = 'var(--vscode-button-background)';
+                button.style.color = 'var(--vscode-button-foreground)';
+                button.style.border = 'none';
+                button.style.borderRadius = '4px';
+                button.style.cursor = 'pointer';
+
+                button.onmouseover = () => {
+                    button.style.background = 'var(--vscode-button-hoverBackground)';
+                };
+
+                button.onmouseout = () => {
+                    button.style.background = 'var(--vscode-button-background)';
+                };
+
+                button.onclick = () => {
+                    dialog.remove();
+                };
+
+                dialog.appendChild(button);
+                document.body.appendChild(dialog);
+            }
+
+            selectItem(nodeItem) {
+                if (this.selectedNode) {
+                    this.selectedNode.toggleSelect(false);
+                }
+                nodeItem.toggleSelect(true);
+                this.selectedNode = nodeItem;
+            }
+
+            moveTreeNodeUI(sourcePath, targetPath) {
+                const sourceNode = this.nodeMap.get(sourcePath);
+                if (!sourceNode) {
+                    console.error("Failed to find a node to move: " + sourcePath);
+                    return;
+                }
+
+                // Get current node info
+                const baseName = sourceNode.name;
+                const isFolder = sourceNode.isFolder;
+
+                // Remove the old DOM node
+                sourceNode.destroy();
+                this.nodeMap.delete(sourcePath);
+
+                // Construct new node data object
+                const newNode = {
+                    name: baseName,
+                    fullPath: `${targetPath}/${baseName}`,
+                    isFolder: isFolder
+                };
+
+                // Get parent UL for the target path
+                const targetNode = this.nodeMap.get(targetPath);
+
+                // Ul is always available if node was loaded or requested to load
+                const ul = targetNode.getUl();
+
+                if (ul) {
+                    console.log("NODE WAS LOADED LETS EXPAND IT !!!!");
+                    //
+                    // Expand area, to show dropped file
+                    //
+                    targetNode.toggleExpand(true);
+                    //
+                    // Render the node with updated path
+                    //
+                    this.renderNode(newNode, ul, false);
+                } else {
+                    console.log("WAS NOT EXPANDED BEFORE !!!!");
+                    // Node was not loaded, just force to read it and open
+                    targetNode.wrapper.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                }
+            }
+
+            renderNode(node, parentUl, isTopLevel = false) {
+                const item = new NodeItem(this, node, parentUl, isTopLevel);
+                this.nodeMap.set(node.fullPath, item);
+            }
+
+            renderTree(data, parentPath = null) {
+                const parentNode = parentPath ? this.nodeMap.get(parentPath) : null;
+                const ul = parentNode?.getOrCreateUl() || this.root;
+                data.forEach(node => this.renderNode(node, ul, parentPath === null));
+            }
+
+            reset() {
+                this.root.innerHTML = '';
+                this.nodeMap.clear();
+            }
+        }
+
+        const tree = new SnippetTreeView('sne-tree');
+
+        window.addEventListener('message', event => {
+            const message = event.data;
+            //
+            // Handle callback
+            //
+            if (message.type === 'onCallback') {
+                const callback = tree.callbackMap.get(message.callbackId);
+                if (callback) {
+                    tree.callbackMap.delete(message.callbackId);
+                    if (message.success) {
+                        callback.resolve(message.data);
+                    } else {
+                        callback.reject(new Error(message.error || 'Unknown error'));
+                    }
+                }
+            }
+
+            if (message.type === "addFolder") {
+                tree.addFolder();
+            }
+
+            if (message.type === "addSnippet") {
+                tree.addSnippet();
+            }
+        }
+        );
+
+        tree.postCommand('ready', {})
+            .then((data) => {
+                tree.reset();
+                tree.renderTree(data);
+            })
+            .catch(err => {
+                tree.showErrorDialog(err);
+            });
+
+
+    </script>
+</body>
+
+</html>

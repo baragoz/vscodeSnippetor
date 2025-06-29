@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SW Architecture Snippets</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 0.5em;
+        }
+
+        .snippet-card {
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 0;
+            margin-bottom: 0.5em;
+            background: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+            box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .snippet-active {
+            border-color: #AAA;
+        }
+
+        .snippet-header {
+            display: flex;
+            justify-content: space-between;
+            width: calc(100% - 1em);
+            flex-direction: column;
+            padding: 0.5em;
+            border-top-right-radius: 6px;
+            border-top-left-radius: 6px;
+            color: var(--vscode-sideBarSectionHeader-foreground);
+            background-color: var(--vscode-sideBarSectionHeader-background);
+            border-top: 1px solid var(--vscode-sideBarSectionHeader-border);
+        }
+
+        .snippet-toolbar {
+            width: 100%;
+            display: inline-flex;
+            justify-content: space-between;
+        }
+
+        .snippet-actions {
+            display: inline-flex;
+        }
+
+        .snippet-actions button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            margin-left: 0;
+            color: inherit;
+            padding: 3px 0px 3px 3px;
+        }
+
+        .snippet-actions button svg {
+            width: 22px;
+            height: 22px;
+            fill: var(--vscode-sideBarSectionHeader-foreground);
+        }
+
+        .snippet-file {
+            font-size: 0.85em;
+            color: var(--vscode-descriptionForeground);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            direction: rtl;
+            text-align: left;
+        }
+
+        .snippet-item-description {
+            padding: 0.5em;
+            white-space: pre-wrap;
+        }
+
+        .collapsed .snippet-item-description {
+            max-height: 2.2em;
+            overflow: hidden;
+        }
+
+        svg.expand {
+            display: none;
+        }
+
+        .collapsed svg.expand {
+            display: block;
+        }
+
+        .collapsed svg.collapse {
+            display: none;
+        }
+
+        .snippet-dot svg.collapse {
+            display: none;
+        }
+
+        .snippet-dot svg.expand {
+            display: none;
+        }
+
+        .snippet-dot .snippet-item-description {
+            display: none;
+        }
+
+        .hide-element {
+            display: none;
+        }
+
+        li.active {
+            background-color: #bde4ff;
+        }
+    </style>
+    <style>
+        body {
+            font-family: var(--vscode-font-family);
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            padding: 16px;
+        }
+
+        #snippetList {
+            padding-top: 20px;
+        }
+
+        .sn-container {
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            padding: 12px;
+            width: calc(100% - 57px);
+            background: var(--vscode-activityBar-background);
+            box-shadow: 0 20px 20px -10px rgba(0, 0, 0, 0.3);
+            position: fixed;
+            top: 25px;
+        }
+
+        .sn-top-icons {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            display: flex;
+            gap: 10px;
+            cursor: pointer;
+        }
+
+        .sn-icon {
+            font-size: 14px;
+            color: var(--vscode-icon-foreground);
+        }
+
+        .sn-form-section {
+            margin-top: 36px;
+        }
+
+        .sn-form-group {
+            margin-bottom: 16px;
+        }
+
+        .sn-label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+
+        .sn-input,
+        .sn-select {
+            width: calc(100% - 20px);
+            padding: 8px;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+        }
+
+        .sn-path-wrapper {
+            position: relative;
+        }
+
+        .sn-folder-select {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            height: calc(100% - 8px);
+            border: 1px solid #888;
+            border-radius: 4px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            padding: 0 8px;
+            font-size: 13px;
+            border-radius: 4px;
+            z-index: 1;
+            appearance: none;
+        }
+
+        .sn-path-input {
+            padding-left: 6px;
+            width: calc(100% - 6px);
+        }
+
+        .sn-input:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+        }
+
+        .sn-error {
+            color: var(--vscode-errorForeground);
+            font-size: 13px;
+            margin-top: 6px;
+        }
+
+        .sn-checkbox {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .sn-checkbox input {
+            margin-right: 8px;
+        }
+
+        .sn-button-row {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .sn-button {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .sn-button:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+
+        .sn-button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .sn-autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 120px;
+            z-index: 10;
+            width: calc(100% - 130px);
+            margin: 2px 0 0;
+            padding: 0;
+            list-style: none;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .sn-autocomplete-list li {
+            padding: 6px 8px;
+            cursor: pointer;
+        }
+
+        .sn-autocomplete-list li:hover {
+            background-color: var(--vscode-list-hoverBackground);
+        }
+    </style>
+    <style>
+        .sn-path-overlay-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .sn-path-input {
+            position: relative;
+            background-color: transparent;
+            z-index: 2;
+        }
+
+        .sn-path-ghost {
+            position: absolute;
+            top: 0;
+            left: 0;
+            padding: 8px;
+            color: #999;
+            opacity: 0.3;
+            pointer-events: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: inherit;
+            font-size: inherit;
+            z-index: 1;
+        }
+
+        .sn-hidden {
+            display: none;
+        }
+
+    </style>
+    <style>
+        #sn-image-wrapper {
+            margin: 1em auto;
+            max-width: 360px;
+            border: 2px dashed var(--vscode-panel-border);
+            border-radius: 8px;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 240px;
+            background-color: var(--vscode-editorGroupHeader-tabsBackground);
+            position: relative;
+            overflow: hidden;
+        }
+
+        #sn-image-filename {
+            position: fixed;
+            top: 0px;
+            left: 0px;
+            width: 100%;
+            font-size: 0.85em;
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            padding-left: 20px;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
+        }
+
+        #sn-image {
+            max-width: 100%;
+            max-height: 120px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        #sn-image-title {
+            font-weight: bold;
+            color: var(--vscode-editor-foreground);
+        }
+
+        #sn-image-subtitle {
+            font-size: 0.85em;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .snippet-textarea {
+            width:calc(100% - 20px);
+            min-height: 60px;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="sn-image-filename">Path: <span id="sn-image-name"></span></div>
+    <div id="sn-image-wrapper">
+        <img id="sn-image" src="" alt="Image preview" />
+        <div id="sn-image-title"></div>
+        <div id="sn-image-subtitle"></div>
+    </div>
+    <div class="sn-container hide-element" id="sn-save-container">
+        <div class="sn-top-icons">
+            <span id="sn-close" class="sn-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="m336-280 144-144 144 144 56-56-144-144 144-144-56-56-144 144-144-144-56 56 144 144-144 144 56 56ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z"/></svg>
+            </span>
+        </div>
+
+        <div id="sn-form-section" class="sn-form-section">
+            <div class="sn-form-group">
+                <label class="sn-label" for="sn-title">Title:</label>
+                <input class="sn-input" type="text" id="sn-title" placeholder="Enter title">
+            </div>
+
+            <div class="sn-form-group">
+                <label class="sn-label" for="sn-description">Description:</label>
+                <input class="sn-input" type="text" id="sn-description" placeholder="Enter description">
+            </div>
+        </div>
+
+        <div class="sn-form-group">
+            <label class="sn-label" for="sn-path">Path:</label>
+            <div class="sn-path-wrapper">
+                <input class="sn-input sn-path-input" type="text" id="sn-path"
+                    placeholder="e.g. lessons/week1/intro.json">
+                <div id="sn-path-ghost" class="sn-path-ghost"></div>
+                <ul id="sn-autocomplete-list" class="sn-autocomplete-list sn-hidden"></ul>
+            </div>
+
+            <div id="sn-error" class="sn-error sn-hidden">Path does not exist</div>
+            <div id="sn-checkbox-group" class="sn-checkbox sn-hidden">
+                <input type="checkbox" id="sn-replace">
+                <label for="sn-replace">Replace the file?</label>
+            </div>
+        </div>
+
+        <div id="sn-button-row" class="sn-button-row">
+            <button class="sn-button" id="sn-save">Save</button>
+            <button class="sn-button" id="sn-cancel">Cancel</button>
+        </div>
+    </div>
+
+    <script>
+        class AutoCompleteManager {
+            constructor(pathInput, vscode, onUpdateSuggestions) {
+                this.pathInput = pathInput;
+                this.vscode = vscode;
+                this.onUpdateSuggestions = onUpdateSuggestions;
+
+                this.autoList = document.querySelector('#sn-autocomplete-list');
+                this.autoSuggestions = [];
+                this.autoLock = false;
+                this.autoTimer = null;
+                this.selectedIndex = -1;
+                this.suggestions = [];
+
+                this.currentFolder = "";
+                this.searchError = "";
+
+                this.initEvents();
+            }
+
+            initEvents() {
+                this.pathInput.addEventListener('keydown', e => this.handleKeyDown(e));
+                this.pathInput.addEventListener('input', () => {
+                    this.handleInput();
+                    // this.updateGhostText();
+                });
+                this.pathInput.addEventListener('blur', () => {
+                    this.handleInput();
+                    setTimeout(() => this.autoList.classList.add('sn-hidden'), 150);
+                });
+            }
+
+            handleInput() {
+                const value = this.pathInput.value.trim();
+                const basePath = value.substring(0, value.lastIndexOf('/'));
+                if (basePath !== this.currentFolder) {
+                    this.currentFolder = basePath;
+                    this.searchError = ""; // reset error state
+
+                    this.vscode.postMessage({
+                        command: 'getAutoComplete',
+                        data: { path: basePath }
+                    });
+                } else {
+                    // Just filter data
+                    this.filterAutoComplete(value);
+                }
+            }
+
+            updateAutoComplete(payload) {
+                //
+                // Update latest requests only
+                //
+                if (payload.path === this.currentFolder) {
+                    let data = []
+                    if (payload.error !== "") {
+                        // Got error - like no such folder
+                        this.searchError = payload.error;
+                    } else {
+                        this.searchError = "";
+                        data = payload.autocomplete;
+                    }
+                    // Update UI for the snippet input
+                    this.onUpdateSuggestions(this.getActualError(), this.pathInput.value);
+
+                    // Update suggestions
+                    this.autoSuggestions = (data || []).map(item => ({
+                        name: item.isDirectory ? item.name + '/' : item.name,
+                        isDirectory: item.isDirectory
+                    }));
+
+                    // filter suggestions
+                    this.filterAutoComplete(this.pathInput.value);
+                }
+
+
+            }
+
+            isExistingPath() {
+                const tmp = this.pathInput.value;
+                if (this.currentFolder.length + 6 >= tmp.length) {
+                    return false;
+                }
+                const val  = tmp.substring(this.currentFolder.length + 1)
+                const x =  this.autoSuggestions.filter(item =>
+                    item.name === val
+                );
+                return x.length > 0;
+            }
+
+            getActualError() {
+                if (this.searchError && this.searchError !== "") {
+                    return this.searchError;
+                }
+
+                if (this.nameError && this.nameError !== "") {
+                    return this.nameError;
+                }
+                return "";
+            }
+
+            filterAutoComplete(currentValue) {
+                if (this.searchError) {
+                    // no need to update autocomplete
+                    this.onUpdateSuggestions(this.searchError, this.pathInput.value);
+                    return;
+                }
+
+                const filterText = currentValue.split('/').pop().toLowerCase();
+                const basePath = currentValue.substring(0, currentValue.lastIndexOf('/') + 1);
+
+                this.suggestions = this.autoSuggestions.filter(item =>
+                    item.name.toLowerCase().includes(filterText)
+                );
+
+                this.autoList.innerHTML = '';
+                this.selectedIndex = -1;
+
+                const ghost = document.getElementById('sn-path-ghost');
+                const text = this.pathInput.value;
+                // TODO: 3 a.m. code, re-work needed
+                if (text.endsWith("/") || text.endsWith(".snippet")) {
+                    ghost.textContent = '';
+                } else if (text.endsWith(".")) {
+                    ghost.textContent = text + "snippet";
+                } else if (text.endsWith(".s")) {
+                    ghost.textContent = text + "nippet";
+                } else if (text.endsWith(".sn")) {
+                    ghost.textContent = text + "ippet";
+                } else if (text.endsWith(".sni")) {
+                    ghost.textContent = text + "ppet";
+                } else if (text.endsWith(".snip")) {
+                    ghost.textContent = text + "pet";
+                } else if (text.endsWith(".snipp")) {
+                    ghost.textContent = text + "et";
+                } else if (text.endsWith(".snippe")) {
+                    ghost.textContent = text + "t";
+                } else {
+                    ghost.textContent = text + ".snippet";
+                }
+
+                if (ghost.textContent !== "") {
+                    this.nameError = "File extension should be '.snippet'";
+                } else {
+                    if (text.endsWith("/")) {
+                        this.nameError = "Please, enter filename";
+                    } else {
+                        this.nameError = "";
+                    }
+                }
+
+                this.onUpdateSuggestions(this.getActualError() , this.pathInput.value);
+
+                if (this.suggestions.length === 0) {
+                    this.autoList.classList.add('sn-hidden');
+                    return;
+                }
+
+                this.suggestions.forEach((suggestion, index) => {
+                    const li = document.createElement('li');
+                    li.textContent = basePath + suggestion.name;
+                    li.dataset.index = index;
+
+                    li.addEventListener('click', () => this.selectSuggestion(index));
+                    this.autoList.appendChild(li);
+                });
+
+                this.autoList.classList.remove('sn-hidden');
+            }
+
+            handleKeyDown(e) {
+                if (this.autoList.classList.contains('sn-hidden')) return;
+
+                const items = this.autoList.querySelectorAll('li');
+
+                if (e.key === 'ArrowRight') {
+                    const ghost = document.getElementById('sn-path-ghost');
+                    if (ghost.textContent !== "") {
+                        this.pathInput.value = ghost.textContent;
+                        ghost.textContent = '';
+                    }
+
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (this.selectedIndex < items.length - 1) {
+                        this.selectedIndex++;
+                        this.updateActiveItem(items);
+                    }
+                }
+
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (this.selectedIndex > 0) {
+                        this.selectedIndex--;
+                        this.updateActiveItem(items);
+                    } else if (this.selectedIndex === 0) {
+                        this.selectedIndex = -1;
+                        this.updateActiveItem(items);
+                    }
+                }
+
+                if (e.key === 'Enter' && this.selectedIndex >= 0) {
+                    e.preventDefault();
+                    this.selectSuggestion(this.selectedIndex);
+                }
+            }
+
+            updateActiveItem(items) {
+                items.forEach((li, idx) => {
+                    li.classList.toggle('active', idx === this.selectedIndex);
+                });
+                if (this.selectedIndex === -1) {
+                    this.pathInput.focus();
+                }
+            }
+
+            selectSuggestion(index) {
+                const basePath = this.pathInput.value.substring(0, this.pathInput.value.lastIndexOf('/') + 1);
+                this.pathInput.value = basePath + this.suggestions[index].name;
+                document.getElementById('sn-path-ghost').textContent = ''; // clear ghost
+                this.autoList.classList.add('sn-hidden');
+                this.handleInput();
+                // Notify suggestion change
+                this.onUpdateSuggestions?.(this.getActualError(), this.pathInput.value);
+            }
+
+            updateGhostText() {
+                const ghost = document.getElementById('sn-path-ghost');
+                if (this.suggestions.length > 0) {
+                    const inputValue = this.pathInput.value;
+                    const basePath = inputValue.substring(0, inputValue.lastIndexOf('/') + 1);
+                    const filterText = inputValue.split('/').pop().toLowerCase();
+                    const match = this.suggestions.find(s => s.name.toLowerCase().startsWith(filterText));
+                    if (match) {
+                        ghost.textContent = basePath + match.name;
+                    } else {
+                        ghost.textContent = '';
+                    }
+                } else {
+                    ghost.textContent = '';
+                }
+            }
+
+            isValidPath(originalPath) {
+                const err = this.getActualError();
+                return err === "";
+            }
+        }
+
+
+        class SnippetHeadImage {
+            constructor() {
+                this.wrapper = document.getElementById("sn-image-wrapper");
+                this.image = document.getElementById("sn-image");
+                this.titleEl = document.getElementById("sn-image-title");
+                this.subtitleEl = document.getElementById("sn-image-subtitle");
+                this.nameEl = document.getElementById("sn-image-name");
+
+                this.states = {
+                    none: {
+                        title: '',
+                        subtitle: '',
+                        url: ''
+                    },
+                    empty: {
+                        title: 'No open snippet',
+                        subtitle: 'But you can start as draft',
+                        url: '{{media_path}}/light_empty.png'
+                    },
+                    addnew: {
+                        title: 'Empty snippet',
+                        subtitle: 'It is time to add new item',
+                        url: '{{media_path}}/light_plus.png'
+                    },
+                    error: {
+                        title: 'Format error',
+                        subtitle: 'JSON format error',
+                        url: '{{media_path}}/light_error.png'
+                    }
+                };
+            }
+
+            show(stateKey) {
+                const state = this.states[stateKey] || this.states.none;
+                if (stateKey === 'none') {
+                    this.wrapper.style.display = 'none';
+                } else {
+                    this.wrapper.style.display = 'flex';
+                    this.image.src = state.url || '';
+                    this.titleEl.textContent = state.title || '';
+                    this.subtitleEl.textContent = state.subtitle || '';
+                }
+            }
+
+            setName(name) {
+                this.nameEl.textContent = name;
+            }
+        }
+
+        class SnippetHeadManager {
+            constructor() {
+                this.container = document.querySelector("#sn-save-container");
+                this.expanded = false;
+                this.state = 'save';
+
+                this.snippetHead = { title: "", description: "", path: "" };
+                this.snippetHead2 = { title: "", description: "", path: "" }; // Modified state
+
+                // Top button
+                this.closeBtn = this.container.querySelector('#sn-close');
+
+                // COMPONENT: Error + checkbox
+                this.error = this.container.querySelector('#sn-error');
+                this.checkboxGroup = this.container.querySelector('#sn-checkbox-group');
+                this.replaceCheckbox = this.container.querySelector('#sn-replace');
+
+                // COMPONENT: bottom buttons
+                this.saveBtn = this.container.querySelector('#sn-save');
+                this.cancelBtn = this.container.querySelector('#sn-cancel');
+
+
+                //
+                // AUTOCOMPLETE
+                //
+                this.selectedIndex = -1;
+                this.suggestions = [];
+
+                //
+                // TOP IAMGE
+                //
+                this.imageView = new SnippetHeadImage();
+
+                this.initEvents();
+
+                this.showImageState('empty');
+            }
+
+            showImageState(key) {
+                this.imageView.show(key);
+            }
+
+            setVisibile(enabled) {
+                if (enabled) {
+                    this.container.classList.remove("hide-element");
+                } else {
+                    this.container.classList.add("hide-element");
+                }
+            }
+
+            initEvents() {
+                //
+                //  CANCEL or CLOSE DIALOG
+                //
+                this.closeBtn.onclick = () => {
+                    this.setVisibile(false);
+                };
+
+                this.cancelBtn.onclick = () => {
+                    this.setVisibile(false);
+                }
+                //
+                //  SAVE
+                //
+                this.saveBtn.onclick = () => {
+                    //
+                    // TODO: do we need something in data?
+                    //
+                    vscode.postMessage({
+                        command: "saveSnippet",
+                        data: {
+                            path: this.pathInput.value,
+                        }
+                    });
+
+                }
+                //
+                // CHECKBOX - replace file
+                //
+                this.replaceCheckbox.onchange = () => this.updateButtons();
+
+                this.setState('save');
+
+                //
+                // TITLE + DESCRIPTION
+                //
+                this.subscribeForBlur("title");
+                this.subscribeForBlur("description");
+
+                //
+                // FILE PATH SELECT
+                //
+                this.initFileAutocomplete();
+            }
+
+            subscribeForBlur(item) {
+                let tmp = this.container.querySelector('#sn-' + item);
+                this[item] = tmp; // keep the reference
+                tmp.addEventListener('blur', () => {
+                    let data = {};
+                    data[item] = tmp.value.trim();
+                    vscode.postMessage({
+                        command: "updateSnippetHead",
+                        data
+                    });
+                });
+            }
+
+            show(selectedPath) {
+                const pathInput = this.container.querySelector('#sn-path');
+
+                //
+                // if new snippet, use the selectedPath as initial state
+                //
+                if (this.snippetHead.path === "" && this.snippetHead2.path === "") {
+                    // Show currently selected path as default
+                    this.snippetHead2.path = selectedPath;
+                }
+
+                pathInput.value = this.snippetHead2.path;
+
+                // Show entire dialog
+                this.setVisibile(true);
+            }
+
+            showError(message) {
+                this.error.textContent = message;
+                if (message === "") {
+                    this.error.classList.add('sn-hidden');
+                    if (this.autocomplete.isExistingPath()) {
+                        this.showReplaceCheckbox(this.snippetHead.path !== this.snippetHead2.path);
+                    }
+                        
+                } else {
+                    this.error.classList.remove('sn-hidden');
+                    // hide checkbox
+                    this.checkboxGroup.classList.add('sn-hidden');
+                }
+
+            }
+
+            showReplaceCheckbox(enabled = true) {
+                if (enabled) {
+                    this.error.classList.add('sn-hidden');
+                    this.checkboxGroup.classList.remove('sn-hidden');
+                } else {
+                    this.checkboxGroup.classList.add('sn-hidden');
+                }
+            }
+
+            setState(mode) {
+                this.state = mode;
+
+                if (mode === 'save') {
+                    this.saveBtn.textContent = 'Save';
+                    this.saveBtn.disabled = false;
+                    this.cancelBtn.textContent = 'Cancel';
+                } else if (mode === 'move') {
+                    this.saveBtn.textContent = 'Move';
+                    this.cancelBtn.textContent = 'Copy';
+
+                    // Initially disable if checkbox not checked
+                    this.updateButtons();
+                }
+            }
+
+            updateButtons() {
+                let buttonText = "Save";
+                // NOT VALID PATH
+                if (!this.autocomplete.isValidPath()) {
+                    this.saveBtn.disabled = true;
+                }
+                else { // VALID PATH
+                    //
+                    // Path valid and it is original path
+                    //
+                    if (this.snippetHead.path === this.snippetHead2.path) {
+                        this.showReplaceCheckbox(false);
+                        this.saveBtn.disabled = false;
+                    } else {
+                        buttonText = "Save As ...";
+                        //
+                        // Not original path, but file already present
+                        //
+                        if (this.autocomplete.isExistingPath(this.snippetHead.path)) {
+                            this.showReplaceCheckbox();
+                            // Show save button if checkbox is on
+
+                            if (this.replaceCheckbox.checked) {
+                                this.saveBtn.disabled = false;
+                            } else {
+                                this.saveBtn.disabled = true;
+                            }
+                        } else {
+                            this.showReplaceCheckbox(false);
+                            // an as new path !!!!
+                            this.saveBtn.disabled = false;
+                        }
+                    }
+                }
+                this.saveBtn.textContent = buttonText;
+            }
+
+            //
+            // FILE PATH LOOKUP
+            //
+            initFileAutocomplete() {
+                this.pathInput = this.container.querySelector('#sn-path');
+                this.autocomplete = new AutoCompleteManager(this.pathInput, vscode, (error, newPath) => {
+                    console.log("PATH " + newPath + "   ERRPR: " + error);
+                    this.snippetHead2.path = newPath;
+                    this.showError(error || ""); // no-error ""
+                    this.updateButtons();
+                    
+                });
+            }
+
+            refreshHeads(orig, next) {
+                this.snippetHead = orig;
+                this.snippetHead2 = next;
+
+                // Update UI too
+                console.log("ASSING title  " + next.title, next.description)
+                this.title.value = next.title;
+                this.description.value = next.description;
+                this.pathInput.value = next.path;
+
+                // Update UI
+                this.updateButtons();
+
+                const tmp = this.snippetHead.path.split("/");
+                // 
+                // Show an original filename if any
+                // Show "" if there is no draft items
+                // Show "Draft" if user added some item
+                const name = tmp.length > 0 ? tmp[tmp.length - 1]: (window.snippetItems.length > 0 ? "Draft" : "");
+                this.imageView.setName(name);
+            }
+
+            refreshImage(error, snippetsCout) {
+                if (error) {
+                    this.showImageState('error');
+                }
+                else if (snippetsCout == 0) {
+                    if (this.snippetHead.path === "") {
+                        this.showImageState('empty');
+                    }
+                    else {
+                        this.showImageState('addnew');
+                    }
+                } else {
+                    this.showImageState('none');
+                }
+                
+                
+            }
+        }
+
+    </script>
+
+    <div id="snippetList"></div>
+    <script>
+
+        function setActiveSnippet(newSnippet) {
+            // Switch an active state
+            window.snippetItems.forEach((item) => {
+                item.setActive(item === newSnippet);
+            });
+        }
+
+        class SnippetItemView {
+            constructor(container, snippet) {
+                this.container = container;
+                this.snippet = snippet;
+                this.component = this.createHtmlFragment();
+                this.editInput = null;
+                // hide text before display
+                this.updateTextClass();
+            }
+
+            updateTextClass() {
+                if (!this.snippet.text || this.snippet.text === "") {
+                    this.component.classList.add("snippet-dot");
+                } else {
+                    this.component.classList.remove("snippet-dot");
+                }
+            }
+
+            createHtmlFragment() {
+                const card = document.createElement('div');
+                card.className = 'snippet-card';
+                card.id = `snippet-${this.snippet.uid}`;
+
+                card.innerHTML = `
+      <div class="snippet-header" id="snippet-${this.snippet.uid}">
+        <div class="snippet-toolbar">
+          <strong class="snippet-label">${this.snippet.line}</strong>
+          <div class="snippet-actions">
+            <button class="action-btn" title="Edit" data-action="editSnippetItem">
+                <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="M160-400v-80h280v80H160Zm0-160v-80h440v80H160Zm0-160v-80h440v80H160Zm360 560v-123l221-220q9-9 20-13t22-4q12 0 23 4.5t20 13.5l37 37q8 9 12.5 20t4.5 22q0 11-4 22.5T863-380L643-160H520Zm300-263-37-37 37 37ZM580-220h38l121-122-18-19-19-18-122 121v38Zm141-141-19-18 37 37-18-19Z"/></svg>
+            </button>
+            <button class="action-btn" title="Collapse/Expand text" data-action="collapseSnippetItem">
+                <svg class="expand" xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="M480-344 240-584l56-56 184 184 184-184 56 56-240 240Z"/></svg>
+                <svg class="collapse" xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="M480-528 296-344l-56-56 240-240 240 240-56 56-184-184Z"/></svg>
+            </button>
+            <button class="action-btn" title="Remove snippet" data-action="removeSnippetItem">
+                <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="m376-300 104-104 104 104 56-56-104-104 104-104-56-56-104 104-104-104-56 56 104 104-104 104 56 56Zm-96 180q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520Zm-400 0v520-520Z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="snippet-item-description collapsed">${this.snippet.text}</div>
+    `;
+                return card;
+            }
+
+            init(index) {
+                if (index !== undefined) {
+                    this.container.insertBefore(this.component, this.container.children[index] || null);
+                } else {
+                    this.container.appendChild(this.component);
+                }
+
+                const buttons = this.component.querySelectorAll('.action-btn');
+                buttons.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const action = btn.getAttribute('data-action');
+                        if (["editSnippetItem", "removeSnippetItem"].includes(action)) {
+                            vscode.postMessage({
+                                command: action,
+                                data: {
+                                    uid: this.snippet.uid
+                                }
+                            });
+                        }
+                        this.handleAction(action);
+                    });
+                });
+
+                const head = this.component.querySelector(".snippet-header");
+                head.addEventListener('click', () => {
+                    vscode.postMessage({
+                        command: "openSnippetItem",
+                        data: {
+                            uid: this.snippet.uid
+                        }
+                    });
+                    setActiveSnippet(this);
+                });
+            }
+
+            handleAction(action) {
+                const desc = this.component.querySelector('.snippet-item-description');
+                if (action === "removeSnippetItem") {
+                    this.component.remove();
+
+                    // Remove snippet item from the list too
+                    const index = window.snippetItems.indexOf(this);
+                    if (index !== -1) {
+                        window.snippetItems.splice(index, 1);
+                    }
+                    
+                    // this.onRemoveObserver?.call()
+                    window.snippetUI?.refreshImage('', window.snippetItems.length);
+                }
+                else if (action === "editSnippetItem") {
+                    //
+                    // Suppose that there is no input yet
+                    //
+                    if (this.editInput) {
+                        return;
+                    }
+                    desc.classList.add("hide-element");
+                    this.editInput = document.createElement('div');
+                    this.editInput.innerHTML = `
+                <textarea class="snippet-textarea">${this.snippet.text}</textarea>
+                <div style="display:flex; justify-content:center; gap:1em; padding-top:0.5em;">
+                    <button class="action-btn" data-action="applyEditItem">
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="m424-296 282-282-56-56-226 226-114-114-56 56 170 170Zm56 216q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/></svg>
+                    </button>
+                    <button class="action-btn" data-action="cancelEditItem">
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#5f6368"><path d="m336-280 144-144 144 144 56-56-144-144 144-144-56-56-144 144-144-144-56 56 144 144-144 144 56 56ZM480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/></svg>
+                    </button>
+                </div>
+            `;
+                    this.component.appendChild(this.editInput);
+
+                    this.editInput.querySelectorAll('.action-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const subAction = btn.getAttribute('data-action');
+                            this.handleAction(subAction);
+                        });
+                    });
+                }
+                else if (action === "collapseSnippetItem") {
+                    this.component.classList.toggle('collapsed');
+                }
+                else if (action === "applyEditItem") {
+                    const newText = this.editInput.querySelector('textarea').value;
+                    this.snippet.text = "" + newText;
+                    desc.textContent = "" + newText;
+                    desc.classList.remove("hide-element");
+                    this.editInput.remove();
+                    this.editInput = null;
+
+                    //
+                    // User could change text only
+                    //
+                    if (this.editFileLine) {
+                        this.snippet.line = this.editFileLine.line;
+                        this.snippet.filePath = this.editFileLine.filePath;
+                        this.editFileLine = null;
+                    }
+
+                    //
+                    // Check if text is empty to
+                    // show/hide the collapse-expand icons 
+                    //
+                    this.updateTextClass();
+                    //
+                    //
+                    //
+                    vscode.postMessage({
+                        command: "updateSnippetItem",
+                        data: {
+                            uid: this.snippet.uid,
+                            text: this.snippet.text,
+                            filePath: this.snippet.filePath,
+                            line: this.snippet.line
+                        }
+                    });
+                }
+                else if (action === "cancelEditItem") {
+                    //
+                    // Disable the snippet edit mode,
+                    // which posting the filePath&line change
+                    //
+                    vscode.postMessage({
+                        command: "updateSnippetItem",
+                        data: {
+                            uid: ""
+                        }
+                    });
+
+                    // Show the description again
+                    desc.classList.remove("hide-element");
+                    if (this.editInput) {
+                        this.editInput.remove();
+                        this.editInput = null;
+                    }
+
+                    // REVERT UI CHANGES  - if user changed the path+line
+                    if (this.editFileLine) {
+                        this.updatePathAndLine(this.snippet.filePath, this.snippet.line);
+                        this.editFileLine = null;
+                    }
+                }
+            }
+
+            updatePathAndLine(filePathArg, line) {
+                const filePath = this.getFolderPath(filePathArg)
+                // find element to update
+                const label = this.component.querySelector('.snippet-label');
+                const lpath = this.component.querySelector('.snippet-file');
+                // Update UI
+                label.textContent = line;
+                lpath.textContent = filePath;
+                // Update snippet
+                this.editFileLine = { line, filePath: filePathArg };
+            }
+
+            setActive(isActive) {
+                if (isActive) {
+                    this.component.classList.add("snippet-active");
+                } else {
+                    this.component.classList.remove("snippet-active");
+                }
+            }
+
+            getFolderPath(filePath) {
+                const parts = filePath.split('/');
+                parts.pop(); // remove the file name
+                return parts.join('/');
+            }
+        }
+
+    </script>
+
+    <script>
+        class SnippetManager {
+            constructor() {
+                this.snippetItems = [];
+                this.header = document.getElementById('snippetHeader');
+            }
+            init() {
+                this.title = this.header.querySelector(".snippet-title");
+                this.titleIcon = this.header.querySelector(".snippet-title-icon");
+                this.titleIcon.addEventListener("click", () => {
+
+                })
+            }
+        }
+    </script>
+
+    <script nonce="{{nonce}}">
+        const vscode = acquireVsCodeApi();
+        window.snippetItems = [];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            window.snippetUI = new SnippetHeadManager();
+        });
+
+        window.addEventListener('message', event => {
+            const { command, data } = event.data;
+            if (command === 'updateSnippetList') {
+                const container = document.getElementById('snippetList');
+                container.innerHTML = '';
+                window.snippetItems = [];
+                data.snippets.forEach(snippet => {
+                    const item = new SnippetItemView(container, snippet);
+                    item.init();
+
+                    if (data.activeUid === snippet.uid) {
+                        item.setActive(true);
+                    }
+
+                    // Cache all items
+                    window.snippetItems.push(item);
+                });
+
+                if (window.snippetUI) {
+                    window.snippetUI.refreshHeads(data.head1, data.head2);
+                    window.snippetUI.refreshImage(data.error, data.snippets.length);
+                    // Hide save dialog
+                    // Refresh could happen on close/save snippet
+                    // and reload webview
+                    window.snippetUI.setVisibile(false);
+                }
+
+            } else if (command === 'updateFilePath') {
+                window.snippetItems.forEach((item) => {
+                    if (item && item.snippet.uid === data.uid) {
+                        // update UI
+                        item.updatePathAndLine(data.filePath, data.line);
+                    }
+                });
+            } else if (command === 'newSnippetItem') {
+                const container = document.getElementById('snippetList');
+                const item = new SnippetItemView(container, data.snippet);
+                // Insert UI at index 
+                item.init(data.index);
+                // Insert snippet in a list
+                window.snippetItems.splice(data.index, 0, item);
+                // Change the highlights
+                setActiveSnippet(item);
+                // TODO: Shoud we hide error image too?
+                window.snippetUI?.refreshImage('', window.snippetItems.length);
+            } else if (command === 'showSaveDialog') {
+                if (window.snippetUI) {
+                    window.snippetUI.show(data.selectedPath);
+                }
+            }
+            //
+            // Callbacks
+            //
+            else if (command === 'autocompleteCallback') {
+                window.snippetUI.autocomplete.updateAutoComplete(data);
+            }
+        });
+    </script>
+</body>
+
+</html>

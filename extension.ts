@@ -1,0 +1,137 @@
+import * as vscode from 'vscode';
+import { SnippetViewProvider } from './SnippetViewProvider';
+import { FileTreeItem, SnippetExplorerProvider } from './SnippetExplorerProvider';
+
+export function activate(context: vscode.ExtensionContext) {
+    // Tree View for Explorer
+    const explorerProvider = new SnippetExplorerProvider(context);
+    vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
+  
+    // Webview for Working Snippet
+    const workingSnippetProvider = new SnippetViewProvider(context, explorerProvider);
+    vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
+  
+    // Webview for UML Diagrams
+    //const umlProvider = new UMLViewProvider(context);
+    // vscode.window.registerWebviewViewProvider('umlDiagramView', umlProvider);
+
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      'swArchitectureSnippets.sidebar',
+      workingSnippetProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('swArchitectureSnippets.addSelectionToSnippet', () => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        const selection = editor.selection;
+        const text = editor.document.getText(selection);
+      }
+    })
+  );
+
+
+  //
+  //  COMMANDS FOR THE TOP LEVEL MENU !!!!
+  //
+  context.subscriptions.push(
+    //
+    // REFRESH - refresh tree
+    //
+    vscode.commands.registerCommand('snippetExplorer.refresh', () => {
+      explorerProvider.refresh();
+    })
+  );
+
+  context.subscriptions.push(
+
+    //
+    // OPEN SNIPPET from file
+    //
+    vscode.commands.registerCommand('snippetExplorer.open', (item: FileTreeItem) => {
+      if (!item.isFolder) {
+        const {error, snippets, head} = explorerProvider.readSnippetFromFileItem(item.fullPath);
+        // You can open a file, webview, or anything:
+        vscode.commands.executeCommand(
+          'workingSnippetView.openFileItem', 
+          {error, snippets, head}
+        );
+      }
+    })
+  );
+  context.subscriptions.push(
+    //
+    // RENAME tree item
+    //
+    vscode.commands.registerCommand('snippetExplorer.rename', (item: FileTreeItem) => {
+      explorerProvider.renameItem(item);
+    })
+  );
+
+  context.subscriptions.push(
+    //
+    // REMOVE tree item
+    //
+    vscode.commands.registerCommand('snippetExplorer.remove', (item: FileTreeItem) => {
+      explorerProvider.removeItem(item);
+    })
+  );
+
+  context.subscriptions.push(
+    //
+    // ADD SNIPPET
+    //
+    vscode.commands.registerCommand('snippetExplorer.addSnippet', () => {
+      explorerProvider.addSnippet();
+    })
+  );
+  
+  context.subscriptions.push(
+    //
+    // ADD FOLDER
+    //
+    vscode.commands.registerCommand('snippetExplorer.addFolder', () => {
+      explorerProvider.addFolder();
+    })
+  );
+
+
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('workingSnippet.newItem', () => {
+      //workingSnippetProvider.enableEditMode();
+      workingSnippetProvider.newSnippetItem("NEW NEWNEW")
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('workingSnippet.refresh', () => {
+      // TBD: workingSnippetProvider.clearSnippets();
+    })
+  );
+
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('workingSnippet.close', () => {
+      workingSnippetProvider.clearSnippets();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('workingSnippet.showSaveDialog', () => {
+      workingSnippetProvider.showSaveDialog();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('workingSnippetView.openFileItem', (data: any) => {
+      workingSnippetProvider.loadSnippetFromJSON(data.error, data.snippets, data.head);
+    })
+  );
+
+}
+
+export function deactivate() {}

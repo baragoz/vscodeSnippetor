@@ -1,0 +1,165 @@
+{
+  "name": "sw-architecture-snippets",
+  "displayName": "SW Architecture Snippets",
+  "description": "Extension to manage software architecture snippets with explorer view and snippet capture",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "swArchitectureSnippets",
+          "title": "SW Snippets",
+          "icon": "./out/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "swArchitectureSnippets": [
+        {
+          "type": "webview",
+          "id": "snippetExplorerView",
+          "name": "Explorer"
+        },
+        {
+          "type": "webview",
+          "id": "workingSnippetView",
+          "name": "Working Snippet"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "swArchitectureSnippets.addSelectionToSnippet",
+        "title": "Add Selection to Working Snippet"
+      },
+      {
+        "command": "snippetExplorer.refresh",
+        "title": "Refresh Snippets",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "snippetExplorer.open",
+        "title": "Open Snippet"
+      },
+      {
+        "command": "snippetExplorer.rename",
+        "title": "Rename Snippet"
+      },
+      {
+        "command": "snippetExplorer.remove",
+        "title": "Remove Snippet"
+      },
+      {
+        "command": "snippetExplorer.addSnippet",
+        "title": "Add Snippet",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "snippetExplorer.addFolder",
+        "title": "Add Folder",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "workingSnippet.newItem",
+        "title": "New Snippet Item",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "workingSnippet.refresh",
+        "title": "Refresh Snippet",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "workingSnippet.close",
+        "title": "Close Snippet",
+        "icon": "$(close)"
+      },
+      {
+        "command": "workingSnippet.showSaveDialog",
+        "title": "Save Snippet",
+        "icon": "$(save)"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+      {
+        "command": "snippetExplorer.open",
+        "when": "view == snippetExplorerView",
+        "group": "navigation"
+      },
+      {
+        "command": "snippetExplorer.rename",
+        "when": "view == snippetExplorerView",
+        "group": "navigation"
+      },
+      {
+        "command": "snippetExplorer.remove",
+        "when": "view == snippetExplorerView",
+        "group": "navigation"
+      }
+      ],
+      "view/title": [
+        {
+          "command": "snippetExplorer.refresh",
+          "when": "view == snippetExplorerView",
+          "group": "navigation"
+        },
+        {
+          "command": "snippetExplorer.addSnippet",
+          "when": "view == snippetExplorerView",
+          "group": "navigation"
+        },
+        {
+          "command": "snippetExplorer.addFolder",
+          "when": "view == snippetExplorerView",
+          "group": "navigation"
+        },
+        {
+          "command": "workingSnippet.close",
+          "when": "view == workingSnippetView",
+          "group": "navigation"
+        },
+        {
+          "command": "workingSnippet.refresh",
+          "when": "view == workingSnippetView",
+          "group": "navigation"
+        },
+        {
+          "command": "workingSnippet.newItem",
+          "when": "view == workingSnippetView",
+          "group": "navigation"
+        },
+        {
+          "command": "workingSnippet.showSaveDialog",
+          "when": "view == workingSnippetView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./"
+  },
+  "resources": [
+    "media/snippetView.html",
+    "media/explorerView.html",
+    "media/dark_new_item.jpg",
+    "media/dark_no_content.jpg",
+    "media/dark_wrong_format.jpg",
+    "media/light_new_item.jpg",
+    "media/light_no_content.jpg",
+    "media/light_wrong_format.jpg"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}
