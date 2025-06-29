@@ -1,7 +1,3 @@
-Of course\! I can help you create a **`README.md`** for your open-source project, Snippetor. A great `README` is essential for any open-source project as it's the first thing potential users and contributors see.
-
-Here is a well-structured and engaging `README.md` based on the information you provided. It's designed to be clear, easy to read, and professional.
-
 -----
 
 # Snippetor
