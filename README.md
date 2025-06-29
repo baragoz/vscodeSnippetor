@@ -1,0 +1,2 @@
+# vscodeSnippetor
+Software architecture snippets
