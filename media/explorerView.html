@@ -973,6 +973,29 @@
                     }, 100);
                 }
             }
+
+            if (message.type === "addNode") {
+                const { name, fullPath, isFolder, parentPath } = message.data;
+                
+                // Check if parent folder is expanded
+                if (tree.expandedPaths.has(parentPath)) {
+                    const parentNode = tree.nodeMap.get(parentPath);
+                    if (parentNode && parentNode.isFolder) {
+                        const ul = parentNode.getUl();
+                        if (ul) {
+                            // Parent is expanded and has children container
+                            // Check if node already exists to avoid duplicates
+                            if (!tree.nodeMap.has(fullPath)) {
+                                tree.renderNode({
+                                    name: name,
+                                    fullPath: fullPath,
+                                    isFolder: isFolder
+                                }, ul, false);
+                            }
+                        }
+                    }
+                }
+            }
         });
 
         tree.postCommand('ready', {})

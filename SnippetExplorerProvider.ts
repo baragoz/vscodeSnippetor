@@ -302,6 +302,21 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private notifyNewSnippetCreated(fullPath: string, parentDir: string): void {
+    if (this._view) {
+      const fileName = path.basename(fullPath);
+      this._view.webview.postMessage({
+        type: 'addNode',
+        data: {
+          name: fileName,
+          fullPath: fullPath,
+          isFolder: false,
+          parentPath: parentDir
+        }
+      });
+    }
+  }
+
   private saveTreeState(expandedPaths: string[]): void {
     this.context.workspaceState.update(this.treeStateKey, expandedPaths);
   }
@@ -362,6 +377,8 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
             `Failed to save snippet: ${err.message}`);
       } else {
         vscode.window.showInformationMessage(`Snippet saved to: ${fullPath}`);
+        // Notify explorer view to add the new snippet if parent folder is expanded
+        this.notifyNewSnippetCreated(fullPath, dir);
       }
     });
   }
