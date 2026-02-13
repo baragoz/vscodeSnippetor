@@ -31,6 +31,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
 
   private rootPath: string = path.join(os.homedir(), '.vscode', 'archsnippets');
   private configPath: string = path.join(this.rootPath, 'config.json');
+  private readonly treeStateKey = 'snippetExplorer.treeState';
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -53,7 +54,8 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
       switch (message.type) {
         case 'ready': {
           const children = this.readDirectory(this.rootPath);
-          this.sendCallback(true, '', message.callbackId, children);
+          const treeState = this.getTreeState();
+          this.sendCallback(true, '', message.callbackId, {children, treeState});
           break;
         }
         case 'expand': {
@@ -64,7 +66,6 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
         case 'rename': {
           const oldPath = message.oldPath;
           const newPath = path.join(path.dirname(oldPath), message.newName);
-          console.log('RENAME: ' + oldPath + '   NEW PATH: ' + newPath);
           try {
             fs.renameSync(oldPath, newPath);
             this.sendCallback(true, '', message.callbackId, {});
@@ -93,10 +94,8 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
                 this.sendCallback(true, '', message.callbackId, {path: data});
               })
               .catch(err => {
-                console.log('GOT SOME ERRPR ', err);
                 this.sendCallback(false, '' + err, message.callbackId);
-              })
-
+              });
           break;
         }
         case 'createFolder': {
@@ -120,12 +119,18 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           vscode.commands.executeCommand('vscode.open', uri);
           break;
         }
+        case 'saveTreeState': {
+          this.saveTreeState(message.expandedPaths || []);
+          break;
+        }
+        case 'openConfig': {
+          const uri = vscode.Uri.file(this.configPath);
+          vscode.commands.executeCommand('vscode.open', uri);
+          break;
+        }
       }
     });
 
-    //
-    // RELOAD UI, on view refresh
-    //
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
         this.refresh();
@@ -144,13 +149,11 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   private handleMove(
       source: string, destinationFolder: string, isFolder: boolean,
       callbackId: string) {
-    const baseName = path.basename(source);  // shoud be '' for folder
-    const destination =
-        path.join(destinationFolder, baseName);  // + '' for folder
+    const baseName = path.basename(source);
+    const destination = path.join(destinationFolder, baseName);
     const relativePath = path.relative(this.rootPath, source).split(path.sep);
-    const isTopFolder = relativePath.length < 2;  // Just a single folder
+    const isTopFolder = relativePath.length < 2;
 
-    // Prevent moving top-level folders or files
     if (isTopFolder) {
       vscode.window.showWarningMessage(
           `Cannot move top-level folder: ${baseName}`);
@@ -160,27 +163,14 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
 
     if (isFolder) {
-      // Prevent moving to same location or into self
-      //
-      //  Case 1:
-      //  source === destination - user could try to move source folder to the
-      //  file list
-      //
-      //  Case 2:
-      //  destination.startsWith(source + path.sep)  - user could try to move
-      //  parent folder
-      //                                               to the child folder
-      //
       if (source === destination || destination.startsWith(source + path.sep)) {
         vscode.window.showWarningMessage(`Failed to move folder.`);
         this.sendCallback(false, `Failed to move folder.`, callbackId);
         return;
       }
-    } else {  // it is file
+    } else {
       const baseDir = path.dirname(source);
-      //
-      // Move file in the same folder, nothing change
-      //
+
       if (baseDir == destination) {
         vscode.window.showWarningMessage(
             `There is no file sort operation support.`);
@@ -189,7 +179,6 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      console.log('ROOT PATH: ' + this.rootPath);
       if (baseDir === this.rootPath) {
         vscode.window.showWarningMessage(
             `Failed to drop file to the root folder.`);
@@ -199,14 +188,10 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
       }
     }
 
-
     try {
       fs.renameSync(source, destination);
       vscode.window.showInformationMessage(
           `Moved "${baseName}" to "${path.basename(destinationFolder)}"`);
-      //
-      // SEND SUCCESS callback
-      //
       this.sendCallback(true, '', callbackId);
       this.refresh();
     } catch (err: any) {
@@ -284,11 +269,17 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
       {name: string; fullPath: string; isFolder: boolean}[] {
     if (!fs.existsSync(dirPath)) return [];
     const entries = fs.readdirSync(dirPath);
-    return entries.map(name => {
-      const fullPath = path.join(dirPath, name);
-      const isFolder = fs.statSync(fullPath).isDirectory();
-      return {name, fullPath, isFolder};
-    });
+    return entries
+        .filter(name => {
+          const fullPath = path.join(dirPath, name);
+          const fileName = path.basename(fullPath);
+          return fileName !== 'config.json';
+        })
+        .map(name => {
+          const fullPath = path.join(dirPath, name);
+          const isFolder = fs.statSync(fullPath).isDirectory();
+          return {name, fullPath, isFolder};
+        });
   }
 
   private ensureFolders() {
@@ -301,13 +292,30 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   }
 
   refresh(): void {
-    // TODO: post message to webview with current state
+    if (this._view) {
+      const children = this.readDirectory(this.rootPath);
+      const treeState = this.getTreeState();
+      this._view.webview.postMessage({
+        type: 'refresh',
+        data: {children, treeState}
+      });
+    }
+  }
+
+  private saveTreeState(expandedPaths: string[]): void {
+    this.context.workspaceState.update(this.treeStateKey, expandedPaths);
+  }
+
+  private getTreeState(): string[] {
+    return this.context.workspaceState.get<string[]>(this.treeStateKey, []);
+  }
+
+  public openConfig(): void {
+    const uri = vscode.Uri.file(this.configPath);
+    vscode.commands.executeCommand('vscode.open', uri);
   }
 
   private initializeStorage() {
-    //
-    // Check root path
-    //
     if (!fs.existsSync(this.rootPath)) {
       fs.mkdirSync(this.rootPath, {recursive: true});
     }
@@ -317,18 +325,12 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
       {folder: 'LocalSpace', mapping: path.join(this.rootPath, 'LocalSpace')}
     ];
 
-    //
-    // Create folder
-    //
     for (const entry of defaultFolders) {
       if (!fs.existsSync(entry.mapping)) {
         fs.mkdirSync(entry.mapping, {recursive: true});
       }
     }
 
-    //
-    // Create config file
-    //
     if (!fs.existsSync(this.configPath)) {
       fs.writeFileSync(
           this.configPath, JSON.stringify(defaultFolders, null, 2));
@@ -364,15 +366,6 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  /*
-  public getTopLevelFolders(): string[] {
-    if (!fs.existsSync(this.rootPath)) return [];
-
-    return fs.readdirSync(this.rootPath, {withFileTypes: true})
-        .filter(dirent => dirent.isDirectory())
-        .map(dirent => dirent.name);
-  }
-  */
 
   public getAutoCompletion(relativePath: string): {
     path: string,
@@ -433,8 +426,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
 
       return {
         error: '',
-        snippets: json.snippets,  // Object.entries(snippets).map(([k, v]) => ({
-                                  // key: k, value: v })),
+        snippets: json.snippets,
         head: {title, description, path: relativePath}
       };
     } catch (err: any) {
@@ -452,9 +444,6 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     return 'Drafts/';
   }
 
-  //
-  // THREE - rename/remove/addSnippet/addFolder
-  //
   public async renameItem(item: FileTreeItem) {
     const newName = await vscode.window.showInputBox(
         {prompt: 'Rename file/folder', value: item.label});
@@ -481,7 +470,6 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           `Delete "${name}"?`, {modal: true}, 'Yes');
 
       confirmed.then((data) => {
-        console.log('CONFFFFFFFFFFFFFFFFFFFFFFIRMED !!!! ', data);
         if (data === 'Yes') {
           try {
             if (isFolder)
@@ -503,18 +491,12 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   }
 
   public async addSnippet() {
-    //
-    // ASK UI to make a folder stub
-    //
     if (this._view) {
       this._view.webview.postMessage({type: 'addSnippet', data: {}});
     }
   }
 
   public async addFolder() {
-    //
-    // ASK UI to make a folder stub
-    //
     if (this._view) {
       this._view.webview.postMessage({type: 'addFolder', data: {}});
     }
@@ -543,24 +525,24 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  //
-  // UI - ask to create a folder:
-  //
   private async createFolder(folder: string, callbackId: string) {
     if (!folder) {
       this.sendCallback(false, `Invalid folder path: ${folder}`, callbackId);
       return;
     }
-    // add root prefix if needed
+
     const folderPath = folder.startsWith(this.rootPath) ?
         folder :
         path.join(this.rootPath, folder);
     try {
-      fs.mkdirSync(folderPath);
-      // Success
+      if (fs.existsSync(folderPath)) {
+        this.sendCallback(
+            false, `Folder already exists: ${path.basename(folderPath)}`, callbackId);
+        return;
+      }
+      fs.mkdirSync(folderPath, {recursive: false});
       this.sendCallback(true, '', callbackId);
     } catch (err: any) {
-      // Catch error
       vscode.window.showErrorMessage(`Failed to create folder: ${err.message}`);
       this.sendCallback(
           false, `Failed to create folder: ${err.message}`, callbackId);

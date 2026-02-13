@@ -2,18 +2,22 @@ import * as vscode from 'vscode';
 import { SnippetViewProvider } from './SnippetViewProvider';
 import { FileTreeItem, SnippetExplorerProvider } from './SnippetExplorerProvider';
 
+
+let log: vscode.OutputChannel;
+
+
 export function activate(context: vscode.ExtensionContext) {
-    // Tree View for Explorer
-    const explorerProvider = new SnippetExplorerProvider(context);
-    vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
-  
-    // Webview for Working Snippet
-    const workingSnippetProvider = new SnippetViewProvider(context, explorerProvider);
-    vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
-  
-    // Webview for UML Diagrams
-    //const umlProvider = new UMLViewProvider(context);
-    // vscode.window.registerWebviewViewProvider('umlDiagramView', umlProvider);
+  // Tree View for Explorer
+  const explorerProvider = new SnippetExplorerProvider(context);
+  vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
+
+  // Webview for Working Snippet
+  const workingSnippetProvider = new SnippetViewProvider(context, explorerProvider);
+  vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
+
+  // Webview for UML Diagrams
+  //const umlProvider = new UMLViewProvider(context);
+  // vscode.window.registerWebviewViewProvider('umlDiagramView', umlProvider);
 
 
   context.subscriptions.push(
@@ -23,8 +27,10 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  console.log('Extension "Software Architecture Snippets" is now active!');
   context.subscriptions.push(
     vscode.commands.registerCommand('swArchitectureSnippets.addSelectionToSnippet', () => {
+      console.log('Command executed: Add Selection to Snippet');
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const selection = editor.selection;
@@ -53,11 +59,11 @@ export function activate(context: vscode.ExtensionContext) {
     //
     vscode.commands.registerCommand('snippetExplorer.open', (item: FileTreeItem) => {
       if (!item.isFolder) {
-        const {error, snippets, head} = explorerProvider.readSnippetFromFileItem(item.fullPath);
+        const { error, snippets, head } = explorerProvider.readSnippetFromFileItem(item.fullPath);
         // You can open a file, webview, or anything:
         vscode.commands.executeCommand(
-          'workingSnippetView.openFileItem', 
-          {error, snippets, head}
+          'workingSnippetView.openFileItem',
+          { error, snippets, head }
         );
       }
     })
@@ -88,13 +94,22 @@ export function activate(context: vscode.ExtensionContext) {
       explorerProvider.addSnippet();
     })
   );
-  
+
   context.subscriptions.push(
     //
     // ADD FOLDER
     //
     vscode.commands.registerCommand('snippetExplorer.addFolder', () => {
       explorerProvider.addFolder();
+    })
+  );
+
+  context.subscriptions.push(
+    //
+    // OPEN CONFIG
+    //
+    vscode.commands.registerCommand('snippetExplorer.openConfig', () => {
+      explorerProvider.openConfig();
     })
   );
 
@@ -134,4 +149,4 @@ export function activate(context: vscode.ExtensionContext) {
 
 }
 
-export function deactivate() {}
+export function deactivate() { }

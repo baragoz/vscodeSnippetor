@@ -38,6 +38,7 @@ exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const SnippetViewProvider_1 = require("./SnippetViewProvider");
 const SnippetExplorerProvider_1 = require("./SnippetExplorerProvider");
+let log;
 function activate(context) {
     // Tree View for Explorer
     const explorerProvider = new SnippetExplorerProvider_1.SnippetExplorerProvider(context);
@@ -49,7 +50,9 @@ function activate(context) {
     //const umlProvider = new UMLViewProvider(context);
     // vscode.window.registerWebviewViewProvider('umlDiagramView', umlProvider);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider('swArchitectureSnippets.sidebar', workingSnippetProvider));
+    console.log('Extension "Software Architecture Snippets" is now active!');
     context.subscriptions.push(vscode.commands.registerCommand('swArchitectureSnippets.addSelectionToSnippet', () => {
+        console.log('Command executed: Add Selection to Snippet');
         const editor = vscode.window.activeTextEditor;
         if (editor) {
             const selection = editor.selection;
@@ -104,6 +107,13 @@ function activate(context) {
     //
     vscode.commands.registerCommand('snippetExplorer.addFolder', () => {
         explorerProvider.addFolder();
+    }));
+    context.subscriptions.push(
+    //
+    // OPEN CONFIG
+    //
+    vscode.commands.registerCommand('snippetExplorer.openConfig', () => {
+        explorerProvider.openConfig();
     }));
     context.subscriptions.push(vscode.commands.registerCommand('workingSnippet.newItem', () => {
         //workingSnippetProvider.enableEditMode();

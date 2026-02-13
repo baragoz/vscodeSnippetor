@@ -43,11 +43,17 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
       const document = editor.document;
       const selection = editor.selection;
       const fileExt = document.fileName.split('.').pop()?.toLowerCase();
-      const allowedExts = ['c', 'cpp', 'cc', 'h', 'hpp', 'py', 'java', 'kt', 'xml'];
+      const allowedExts = ['c', 'cpp', 'cc', 'h', 'hpp', 'py', 'java', 'kt', 'xml', 'js', 'ts', 'jsx', 'tsx', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'html', 'css', 'json', 'yaml', 'yml', 'sh', 'md'];
 
+      console.log("Selection changed: ", {
+        file: document.fileName,
+        selection: selection,
+        fileExt: fileExt
+      });
       if (!selection.isEmpty && fileExt && allowedExts.includes(fileExt)) {
         const line = selection.active.line + 1;
         const fullPath = document.fileName;
+        console.log("Selected line: ", line, " in file: ", fullPath);
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         const relativePath = workspaceFolder 
             ? path.relative(workspaceFolder.uri.fsPath, fullPath) 
@@ -57,6 +63,8 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
 
         this.cachedFilePath = relativePath;
         this.cachedSnippetLine = snippetLine;
+
+        console.log("Cached file path and line: ", this.cachedFilePath, this.cachedSnippetLine);
 
         if (this.editUid !== "") {
           this._view?.webview.postMessage({

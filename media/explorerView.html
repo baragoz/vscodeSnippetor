@@ -147,22 +147,15 @@
             }
 
             init(parentUl) {
-                //
-                // Create 
-                //    LI >  DIV  >  SVG ICONS
-                //               >  SPAN 
-                //
                 const li = document.createElement('li');
                 if (this.isFolder) {
                     li.classList.add('sne-collapsed');
                 }
 
-                // WRAPPER
                 const wrapper = document.createElement('div');
                 wrapper.className = this.isFolder ? 'sne-folder' : 'sne-file';
                 wrapper.draggable = !this.isTopLevel;
 
-                // SPAN - icons
                 const icon = document.createElement('span');
                 icon.className = 'sne-icon';
                 icon.innerHTML =
@@ -176,44 +169,29 @@
                 span.contentEditable = false;
 
                 this.initSingleClickHandlers(li, wrapper, span);
-
                 this.initItemRename(wrapper, span);
-
-                //
-                // Drag & Drop
-                //
                 this.initDragAndDrop(wrapper, span);
 
-
-                //
-                // Complete UI tree creation
-                //
                 wrapper.appendChild(icon);
                 wrapper.appendChild(span);
                 li.appendChild(wrapper);
                 parentUl.appendChild(li);
 
-                // need to save
                 this.wrapper = wrapper;
                 this.li = li;
-
-                // save node in tree
                 this.tree.nodeMap.set(this.fullPath, this);
             }
 
             initDragAndDrop(wrapper, span) {
-                // Allow dragging only if not top-level folder
                 wrapper.ondragstart = (e) => {
-                    // const isTopLevel = !node.fullPath.includes('/');
                     if (this.isFolder && this.isTopLevel) {
-                        e.preventDefault(); // prevent dragging top-level folders
+                        e.preventDefault();
                         return;
                     }
                     e.dataTransfer.setData('text/plain', (this.isFolder ? "folder:" : "file:") + this.fullPath);
                 };
 
                 wrapper.ondragover = (e) => {
-                    // Allow drop only on folders
                     if (this.isFolder) {
                         e.preventDefault();
                         wrapper.style.backgroundColor = 'var(--vscode-list-hoverBackground)';
@@ -233,10 +211,9 @@
                     const dragData = e.dataTransfer.getData('text/plain').split(":");
 
                     const sourcePath = dragData[1];
-                    const isMovingFolder = dragData[0] === "folder"; // we need to know if we dnd folder or file
+                    const isMovingFolder = dragData[0] === "folder";
 
-                    // user could try to drop on a file 
-                    const targetPath = this.isFolder ? this.fullPath : this.fullPath.substring(0, targetPath.lastIndexOf('/'));
+                    const targetPath = this.isFolder ? this.fullPath : this.fullPath.substring(0, this.fullPath.lastIndexOf('/'));
 
                     if (this.isFolder && targetPath.startsWith(sourcePath)) {
                         this.tree.showErrorDialog('Cannot move a parent folder into its own subfolder.');
@@ -246,17 +223,11 @@
                     if (!isMovingFolder) {
                         const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
                         if (baseSource === targetPath) {
-                            // User dropped file to the same folder — no need to move
                             return;
                         }
                     }
 
-
                     if (sourcePath && targetPath && sourcePath !== targetPath) {
-                        //
-                        // Targe path should always be a folder
-                        // while source code be a file OR folder
-                        //
                         this.tree.postCommand('move', { sourcePath, targetPath, isFolder: isMovingFolder })
                             .then(() => {
                                 this.tree.moveTreeNodeUI(sourcePath, targetPath);
@@ -268,17 +239,11 @@
                 };
             }
 
-            //
-            // Init rename functionality
-            //
             initItemRename(wrapper, span) {
-                //
-                // Prevent multi-line input
-                //
                 span.onkeydown = (e) => {
                     if (e.key === 'Enter') {
                         e.preventDefault();
-                        span.blur(); // optionally end editing on Enter
+                        span.blur();
                     }
 
                     if (e.key === 'Esc' && span.contentEditable) {
@@ -288,46 +253,32 @@
                     }
                 };
 
-                //
-                // EDIT DONE
-                //
                 span.onblur = () => {
                     if (!span.contentEditable)
                         return;
-                    // non editable content anymore
+
                     const newName = span.textContent.trim();
                     span.contentEditable = false;
 
-                    // Nothing change ?
                     if (newName !== this.name) {
                         const parentPath = this.fullPath.substring(0, this.fullPath.lastIndexOf('/'));
-
                         const error = this.tree._validateRename(parentPath, newName);
-                        // INVALID FileName
+
                         if (error) {
                             this.tree.showErrorDialog(error);
                             span.textContent = this.name;
                             return;
                         }
 
-                        //
-                        // Post command to rename, and handle result
-                        //
-                        this.tree.postCommand(
-                            'rename',
-                            {
-                                oldPath: this.fullPath,
-                                newName
-                            }
-                        ).then((data) => {
+                        this.tree.postCommand('rename', {
+                            oldPath: this.fullPath,
+                            newName
+                        }).then((data) => {
                             const oldPath = this.fullPath;
                             this.name = newName;
                             this.fullPath = parentPath + '/' + newName;
-
-                            // Update span dataset (no need to update ??? or trim() and back needed ??? )
                             span.textContent = newName;
 
-                            // Update nodeMap key
                             const nodeItem = this.tree.nodeMap.get(oldPath);
                             this.tree.nodeMap.set(this.fullPath, nodeItem);
                             this.tree.nodeMap.delete(oldPath);
@@ -338,38 +289,29 @@
                         })
                             .catch(err => {
                                 this.tree.showErrorDialog(err);
-                                span.textContent = this.name; // revert name change
+                                span.textContent = this.name;
                             });
                     }
                 };
             }
 
-            //
-            // Context Menu
-            // Select/focus item
-            // Open snippet
-            //
             initSingleClickHandlers(li, wrapper, span) {
-                //
-                // On click -> select & context menu
-                //
                 wrapper.oncontextmenu = (e) => {
                     e.preventDefault();
                     this.tree.selectItem(this);
-                    const x = e.clientX; // + window.scrollX;
-                    const y = e.clientY; // + window.scrollY;
+                    const x = e.clientX;
+                    const y = e.clientY;
                     this.tree.showContextMenu(x, y, this, li);
                 };
 
                 wrapper.onclick = (e) => {
                     this.tree.selectItem(this);
-                    //
-                    // Collapse/expand folder
-                    //
+
                     if (this.isFolder) {
                         e.stopPropagation();
                         if (li.classList.contains('sne-collapsed')) {
                             li.classList.remove('sne-collapsed');
+                            this.tree.addExpandedPath(this.fullPath);
                             if (!li.querySelector('ul')) {
                                 const ul = document.createElement('ul');
                                 li.appendChild(ul);
@@ -383,23 +325,17 @@
                             }
                         } else {
                             li.classList.add('sne-collapsed');
+                            this.tree.removeExpandedPath(this.fullPath);
                         }
                     }
                 };
 
-                //
-                // Double-click - to open file
-                //
                 span.ondblclick = () => {
-                    // Select item anyway
                     this.tree.selectItem(this);
 
                     if (!this.isFolder) {
                         vscode.postMessage({ type: 'openFile', path: this.fullPath });
                     } else {
-                        // Note: it was an idea to make folder name editable on dbl click
-                        //       but indeed it is not comfortable at all
-                        // span.contentEditable = true;
                         span.focus();
                     }
                 };
@@ -414,7 +350,6 @@
             }
 
             toggleExpand(expanded) {
-                // Expand the folder if necessary
                 if (expanded) {
                     this.li.classList.remove('sne-collapsed');
                 } else {
@@ -444,18 +379,16 @@
             constructor(containerId) {
                 this.root = document.getElementById(containerId);
                 this.contextMenu = document.getElementById('sne-context-menu');
-                this.nodeMap = new Map(); // fullPath => <li>
+                this.nodeMap = new Map();
                 this.selectedNode = null;
+                this.expandedPaths = new Set();
 
                 document.addEventListener('click', () => {
                     this.hideContextMenu();
                 });
 
-                // callbacks API
                 this.callbackMap = new Map();
                 this.callbackCounter = 1;
-
-                // context menu actions
                 this.contextAction = '';
                 this.contextActionTime = 0;
 
@@ -463,16 +396,13 @@
             }
 
             init() {
-                // hide context menu on scroll
                 window.addEventListener('scroll', () => {
                     this.hideContextMenu();
                 }, true);
 
-
                 window.addEventListener('click', () => {
                     this.hideContextMenu();
                 }, true);
-
             }
 
             postCommand(command, data = {}) {
@@ -488,25 +418,15 @@
                 });
             }
 
-            //
-            //  Check that file or folder does not exits
-            //
             _validateRename(parentPath, newName) {
-                //
-                // NOT EMPTY
-                //
                 if (!newName || newName.trim() === '') {
                     return 'Name cannot be empty';
                 }
-                //
-                // Does not contain folder path
-                //
+
                 if (newName.includes('/')) {
                     return "Name cannot contain '/'";
                 }
-                //
-                // Filename exists
-                //
+
                 const newFullPath = parentPath + '/' + newName;
                 if (this.nodeMap.has(newFullPath)) {
                     return 'An item with this name already exists';
@@ -517,13 +437,69 @@
             _updateSubtreePaths(oldBase, newBase) {
                 for (const [path, nodeItem] of this.nodeMap.entries()) {
                     if (path.startsWith(oldBase + '/')) {
-                        console.log("_updateSubtreePaths " + path);
                         const newPath = newBase + path.substring(oldBase.length);
                         nodeItem.fullPath = newPath;
                         this.nodeMap.set(newPath, nodeItem);
                         this.nodeMap.delete(path);
                     }
                 }
+
+                const pathsToUpdate = Array.from(this.expandedPaths).filter(p => p.startsWith(oldBase + '/'));
+                pathsToUpdate.forEach(oldPath => {
+                    this.expandedPaths.delete(oldPath);
+                    const newPath = newBase + oldPath.substring(oldBase.length);
+                    this.expandedPaths.add(newPath);
+                });
+            }
+
+            addExpandedPath(path) {
+                this.expandedPaths.add(path);
+                this.saveTreeState();
+            }
+
+            removeExpandedPath(path) {
+                this.expandedPaths.delete(path);
+                this.saveTreeState();
+            }
+
+            saveTreeState() {
+                vscode.postMessage({
+                    type: 'saveTreeState',
+                    expandedPaths: Array.from(this.expandedPaths)
+                });
+            }
+
+            restoreTreeState(expandedPaths) {
+                if (!expandedPaths || expandedPaths.length === 0) {
+                    return;
+                }
+
+                this.expandedPaths = new Set(expandedPaths);
+                const pathsToRestore = expandedPaths.filter(folderPath => {
+                    const nodeItem = this.nodeMap.get(folderPath);
+                    return nodeItem && nodeItem.isFolder;
+                });
+
+                pathsToRestore.forEach(folderPath => {
+                    const nodeItem = this.nodeMap.get(folderPath);
+                    if (nodeItem && nodeItem.isFolder) {
+                        const li = nodeItem.li;
+                        if (li.classList.contains('sne-collapsed')) {
+                            li.classList.remove('sne-collapsed');
+                            if (!li.querySelector('ul')) {
+                                const ul = document.createElement('ul');
+                                li.appendChild(ul);
+                                this.postCommand('expand', { path: folderPath })
+                                    .then((data) => {
+                                        this.renderTree(data, folderPath);
+                                    })
+                                    .catch(err => {
+                                        this.showErrorDialog(err);
+                                    });
+                            }
+                        }
+                    }
+                });
             }
 
             addFolder() {
@@ -542,57 +518,44 @@
                 }
 
                 const selectedPath = selected.fullPath;
-                const isSelectedFolder = selected.isFolder;
-                const parentPath = isSelectedFolder ? selectedPath : selectedPath.substring(0, selectedPath.lastIndexOf('/'));
+                const parentPath = selected.isFolder ? selectedPath : selectedPath.substring(0, selectedPath.lastIndexOf('/'));
 
                 const parentLiEl = this.nodeMap.get(parentPath);
-                const subtreeLoaded = parentLiEl?.querySelector('ul');
-                // If path not loaded at all yet
+                if (!parentLiEl) {
+                    this.showErrorDialog("Parent folder not found. Please select a folder first.");
+                    return;
+                }
+
+                const subtreeLoaded = parentLiEl.getUl();
+
                 if (!subtreeLoaded) {
-                    console.log("NOT LOADED SEND CLICL");
-                    // send double click to expand folder
-                    const wrapper = parentLiEl?.querySelector('.sne-folder');
-                    if (wrapper && parentLiEl?.classList.contains('sne-collapsed')) {
-                        console.log("FOUND WRAPPER SEND DOUBLE CLICK");
-                        // Emulate double-click to expand and load contents
+                    const wrapper = parentLiEl.wrapper;
+                    if (wrapper && parentLiEl.li.classList.contains('sne-collapsed')) {
                         wrapper.dispatchEvent(new MouseEvent('click', { bubbles: true }));
                     }
-
-                    //
-                    // add an empty node item in a few milliseconds
-                    //
                     setTimeout(() => this._addEmptyEditableNode(parentPath, isFolder), 200);
                     return;
                 }
 
-
-                // Expand if necessary
-                if (parentLiEl?.classList.contains('sne-collapsed')) {
-                    parentLiEl.classList.remove('sne-collapsed');
+                if (parentLiEl.li.classList.contains('sne-collapsed')) {
+                    parentLiEl.li.classList.remove('sne-collapsed');
+                    this.addExpandedPath(parentPath);
                 }
 
-                /* May be we should add it, if folder is empty
-                if (!parentLiEl.querySelector('ul')) {
-                   const ul = document.createElement('ul');
-                    parentLiEl.appendChild(ul);
-                }
-                */
-
-                // We have an animation to expand folder
                 setTimeout(() => this._addEmptyEditableNode(parentPath, isFolder), 100);
 
             }
 
 
             _addEmptyEditableNode(parentPath, isFolder) {
-                // Ensure ul exists (path could be empty)
-                const ul = this.nodeMap.get(parentPath).querySelector('ul') || (() => {
-                    const u = document.createElement('ul');
-                    this.nodeMap.get(parentPath).appendChild(u);
-                    return u;
-                })();
+                const parentNode = this.nodeMap.get(parentPath);
+                if (!parentNode) {
+                    this.showErrorDialog("Parent folder not found. Please try again.");
+                    return;
+                }
 
-                // Remove any previous empty node
+                const ul = parentNode.getOrCreateUl();
+
                 if (ul.querySelector('.sne-editing')) {
                     ul.querySelector('.sne-editing').remove();
                 }
@@ -645,9 +608,6 @@
                 }
 
                 async function handleCreate() {
-
-                    console.log("HANDLE CREATE  !!!!" + span.textContent.trim());
-
                     const newName = span.textContent.trim();
                     if (!handleValidate()) {
                         if (newName === '') cleanup();
@@ -668,6 +628,13 @@
                         });
 
                         cleanup();
+                        
+                        const parentNode = tree.nodeMap.get(parentPath);
+                        if (parentNode && parentNode.isFolder) {
+                            parentNode.li.classList.remove('sne-collapsed');
+                            tree.addExpandedPath(parentPath);
+                        }
+                        
                         tree.renderNode({
                             name: newName,
                             fullPath: newFullPath,
@@ -711,10 +678,8 @@
             }
 
             showContextMenu(x, y, node, li) {
-                this.contextMenu.innerHTML = ''; // clear previous
-                //
-                // Do not show context menu for top folder
-                //
+                this.contextMenu.innerHTML = '';
+
                 if (node.isTopLevel)
                     return;
 
@@ -754,13 +719,7 @@
                     this.contextAction = "move:" + (node.isFolder? "folder:": "file:") + node.fullPath;
                 });
                 addItem('Paste', (disabled) => {
-                    // Do nothing if item disabled
                     if (!disabled && this.contextAction != "") {
-                        //
-                        // move:file:/path/to/file.snippet
-                        //
-                        // copy:folder:/path/to/folder/name
-                        //
                         const tmp = this.contextAction.split(":");
                         if (tmp.length === 3) {
                             this.handlePasteCommand(
@@ -775,6 +734,12 @@
 
                 addSeparator();
 
+                addItem('Open Config', () => {
+                    vscode.postMessage({ type: 'openConfig' });
+                });
+
+                addSeparator();
+
                 addItem('Rename', () => {
                     const span = li.querySelector('.sne-editable');
                     span.contentEditable = true;
@@ -782,32 +747,24 @@
                 });
 
                 addItem('Delete', () => {
-                    console.log("DELETE " + node.fullPath);
                     this.postCommand('remove', { fullPath: node.fullPath, name: node.name, isFolder: node.isFolder })
                         .then((data) => {
                             if (data.path && data.path != '') {
-                                // remove ui
-                                node.destroy();
-                                // remove reference
-                                this.nodeMap.delete(node.fullPath);
-                                // remove sub-node references
-                                // ui part should be removed on node.destroy
                                 if (node.isFolder) {
+                                    this.removeExpandedPath(node.fullPath);
                                     for (const [path, nodeItem] of this.nodeMap.entries()) {
                                         if (path.startsWith(node.fullPath + '/')) {
-                                            console.log("remove " + path);
                                             this.nodeMap.delete(path);
+                                            this.removeExpandedPath(path);
                                         }
                                     }
                                 }
-
+                                node.destroy();
+                                this.nodeMap.delete(node.fullPath);
                             }
                         })
                         .catch(err => {
-                            console.log("GOT A ERROR : IN VIEW: ", err)
-                            // An mepty error could happen if user did not confirmed removal
                             if (err && err != '') {
-                                // Show error message
                                 this.showErrorDialog(err);
                             }
                         });
@@ -819,9 +776,7 @@
             }
 
             handlePasteCommand(command, sourcePath, isMovingFolder, dstPath, isDstFolder) {
-
-                // user could try to drop on a file 
-                const targetPath = isDstFolder ? dstPath : dstPath.substring(0, targetPath.lastIndexOf('/'));
+                const targetPath = isDstFolder ? dstPath : dstPath.substring(0, dstPath.lastIndexOf('/'));
 
                 if (isMovingFolder && targetPath.startsWith(sourcePath)) {
                     this.showErrorDialog(`Cannot ${command} a parent folder into its own subfolder.`);
@@ -831,20 +786,11 @@
                 if (!isMovingFolder) {
                     const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
                     if (baseSource === targetPath) {
-                        // User dropped file to the same folder — no need to move
-                        //
-                        // TODO(2222): handle copy to the same folder
-                        // 
                         return;
                     }
                 }
 
-
                 if (sourcePath && targetPath && sourcePath !== targetPath) {
-                    //
-                    // Targe path should always be a folder
-                    // while source code be a file OR folder
-                    //
                     this.postCommand(command, { sourcePath, targetPath, isFolder: isMovingFolder })
                         .then(() => {
                             if (command === 'move') {
@@ -853,17 +799,9 @@
                             else if (command === "copy") {
                                 const tmp = sourcePath.split("/");
                                 const name = tmp[tmp.length - 1];
-
-
-                                console.log("COPY SRC: " + sourcePath);
-                                console.log("COPY NAME: " + name);
-                                console.log("COPY SDT: " + targetPath);
-
-                                // it is 100% folder
                                 const targetNode = this.nodeMap.get(targetPath);
-                                // getUl() is null ? => folder was not expanded
+
                                 if (targetNode && targetNode.getUl()) {
-                                    console.log("COPY - DRAW RENDER NODE ");
                                     this.renderNode({
                                         name,
                                         fullPath: targetPath + "/" + name,
@@ -871,7 +809,6 @@
                                     },
                                     targetNode.getUl());
                                 }
-                                
                             }
                         })
                         .catch(err => {
@@ -881,7 +818,6 @@
             }
 
             showErrorDialog(errorMessage) {
-                // Remove existing dialog if present
                 const existing = document.getElementById('sne-error-dialog');
                 if (existing) existing.remove();
 
@@ -941,44 +877,28 @@
             moveTreeNodeUI(sourcePath, targetPath) {
                 const sourceNode = this.nodeMap.get(sourcePath);
                 if (!sourceNode) {
-                    console.error("Failed to find a node to move: " + sourcePath);
                     return;
                 }
 
-                // Get current node info
                 const baseName = sourceNode.name;
                 const isFolder = sourceNode.isFolder;
 
-                // Remove the old DOM node
                 sourceNode.destroy();
                 this.nodeMap.delete(sourcePath);
 
-                // Construct new node data object
                 const newNode = {
                     name: baseName,
                     fullPath: `${targetPath}/${baseName}`,
                     isFolder: isFolder
                 };
 
-                // Get parent UL for the target path
                 const targetNode = this.nodeMap.get(targetPath);
-
-                // Ul is always available if node was loaded or requested to load
                 const ul = targetNode.getUl();
 
                 if (ul) {
-                    console.log("NODE WAS LOADED LETS EXPAND IT !!!!");
-                    //
-                    // Expand area, to show dropped file
-                    //
                     targetNode.toggleExpand(true);
-                    //
-                    // Render the node with updated path
-                    //
                     this.renderNode(newNode, ul, false);
                 } else {
-                    console.log("WAS NOT EXPANDED BEFORE !!!!");
-                    // Node was not loaded, just force to read it and open
                     targetNode.wrapper.dispatchEvent(new MouseEvent('click', { bubbles: true }));
                 }
             }
@@ -1004,9 +924,7 @@
 
         window.addEventListener('message', event => {
             const message = event.data;
-            //
-            // Handle callback
-            //
+
             if (message.type === 'onCallback') {
                 const callback = tree.callbackMap.get(message.callbackId);
                 if (callback) {
@@ -1026,13 +944,27 @@
             if (message.type === "addSnippet") {
                 tree.addSnippet();
             }
-        }
-        );
+
+            if (message.type === "refresh") {
+                tree.reset();
+                tree.renderTree(message.data.children);
+                if (message.data.treeState && message.data.treeState.length > 0) {
+                    setTimeout(() => {
+                        tree.restoreTreeState(message.data.treeState);
+                    }, 100);
+                }
+            }
+        });
 
         tree.postCommand('ready', {})
             .then((data) => {
                 tree.reset();
-                tree.renderTree(data);
+                tree.renderTree(data.children || data);
+                if (data.treeState && data.treeState.length > 0) {
+                    setTimeout(() => {
+                        tree.restoreTreeState(data.treeState);
+                    }, 100);
+                }
             })
             .catch(err => {
                 tree.showErrorDialog(err);
