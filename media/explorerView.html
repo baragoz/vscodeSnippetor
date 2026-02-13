@@ -249,7 +249,7 @@
                     if (e.key === 'Esc' && span.contentEditable) {
                         e.preventDefault();
                         span.contentEditable = false;
-                        span.textContent = this.name;
+                        span.textContent = "eeeee:" +this.name;
                     }
                 };
 
@@ -257,10 +257,15 @@
                     if (!span.contentEditable)
                         return;
 
-                    const newName = span.textContent.trim();
+                    let newName = span.textContent.trim();
                     span.contentEditable = false;
 
-                    if (newName !== this.name) {
+                    if (!this.isFolder && !newName.endsWith('.snippet')) {
+                            newName = newName + '.snippet';
+                    }
+
+                    if (newName !== this.name) {    
+
                         const parentPath = this.fullPath.substring(0, this.fullPath.lastIndexOf('/'));
                         const error = this.tree._validateRename(parentPath, newName);
 
@@ -425,6 +430,10 @@
 
                 if (newName.includes('/')) {
                     return "Name cannot contain '/'";
+                }
+
+                if (newName.includes('..')) {
+                    return "Name cannot contain '..'";
                 }
 
                 const newFullPath = parentPath + '/' + newName;
@@ -608,7 +617,9 @@
                 }
 
                 async function handleCreate() {
-                    const newName = span.textContent.trim();
+                    let newName = span.textContent.trim();
+                    
+                    
                     if (!handleValidate()) {
                         if (newName === '') cleanup();
                         return;
@@ -618,6 +629,14 @@
                         return;
                     }
 
+                    if (!isFolder && !newName.endsWith('.snippet')) {
+                        newName = newName + '.snippet';
+                        span.textContent = newName;
+                    }
+        
+                    // update span text content to the new name
+                    span.textContent = newName;
+                    // disable content editable
                     span.contentEditable = false;
 
                     const newFullPath = parentPath + '/' + newName;
