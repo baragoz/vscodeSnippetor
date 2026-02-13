@@ -228,9 +228,75 @@
                     }
 
                     if (sourcePath && targetPath && sourcePath !== targetPath) {
-                        this.tree.postCommand('move', { sourcePath, targetPath, isFolder: isMovingFolder })
-                            .then(() => {
-                                this.tree.moveTreeNodeUI(sourcePath, targetPath);
+                        const sourceName = sourcePath.split('/').pop();
+                        const targetName = targetPath.split('/').pop();
+                        const destinationPath = targetPath + '/' + sourceName;
+                        
+                        // Check if destination already exists
+                        this.tree.postCommand('checkDestination', { destinationPath })
+                            .then((result) => {
+                                if (result.exists) {
+                                    // Destination exists
+                                    if (result.isFolder !== isMovingFolder) {
+                                        // Different types - cannot overwrite
+                                        const sourceType = isMovingFolder ? 'folder' : 'file';
+                                        const destType = result.isFolder ? 'folder' : 'file';
+                                        this.tree.showErrorDialog(
+                                            `Cannot overwrite ${destType} "${sourceName}" with ${sourceType}.`);
+                                        return;
+                                    }
+                                    
+                                    // Same type - ask for override confirmation
+                                    const itemType = isMovingFolder ? 'folder' : 'file';
+                                    const message = `"${sourceName}" ${itemType} already exists in "${targetName}". Overwrite?`;
+                                    
+                                    this.tree.showConfirmDialog(
+                                        message,
+                                        () => {
+                                            // User confirmed override
+                                            this.tree.postCommand('move', { 
+                                                sourcePath, 
+                                                targetPath, 
+                                                isFolder: isMovingFolder,
+                                                overwrite: true
+                                            })
+                                                .then(() => {
+                                                    this.tree.moveTreeNodeUI(sourcePath, targetPath);
+                                                })
+                                                .catch(err => {
+                                                    this.tree.showErrorDialog(err);
+                                                });
+                                        },
+                                        () => {
+                                            // User cancelled - do nothing
+                                        }
+                                    );
+                                } else {
+                                    // Destination doesn't exist - proceed with normal move
+                                    const itemType = isMovingFolder ? 'folder' : 'file';
+                                    const message = `Move "${sourceName}" ${itemType} to "${targetName}" folder?`;
+                                    
+                                    this.tree.showConfirmDialog(
+                                        message,
+                                        () => {
+                                            // User confirmed
+                                            this.tree.postCommand('move', { 
+                                                sourcePath, 
+                                                targetPath, 
+                                                isFolder: isMovingFolder 
+                                            })
+                                                .then(() => {
+                                                    this.tree.moveTreeNodeUI(sourcePath, targetPath);
+                                                })
+                                                .catch(err => {
+                                                    this.tree.showErrorDialog(err);
+                                                });
+                                        },
+                                        () => {
+                                            // User cancelled - do nothing
+                                        }
+                                    );
+                                }
                             })
                             .catch(err => {
                                 this.tree.showErrorDialog(err);
@@ -810,30 +876,144 @@
                 }
 
                 if (sourcePath && targetPath && sourcePath !== targetPath) {
-                    this.postCommand(command, { sourcePath, targetPath, isFolder: isMovingFolder })
-                        .then(() => {
-                            if (command === 'move') {
-                                this.moveTreeNodeUI(sourcePath, targetPath);
-                            }
-                            else if (command === "copy") {
-                                const tmp = sourcePath.split("/");
-                                const name = tmp[tmp.length - 1];
-                                const targetNode = this.nodeMap.get(targetPath);
-
-                                if (targetNode && targetNode.getUl()) {
-                                    this.renderNode({
-                                        name,
-                                        fullPath: targetPath + "/" + name,
-                                        isFolder: isMovingFolder,
-                                    },
-                                    targetNode.getUl());
+                    const sourceName = sourcePath.split('/').pop();
+                    const targetName = targetPath.split('/').pop();
+                    const destinationPath = targetPath + '/' + sourceName;
+                    
+                    // Check if destination already exists
+                    this.postCommand('checkDestination', { destinationPath })
+                        .then((result) => {
+                            if (result.exists) {
+                                // Destination exists
+                                if (result.isFolder !== isMovingFolder) {
+                                    // Different types - cannot overwrite
+                                    const sourceType = isMovingFolder ? 'folder' : 'file';
+                                    const destType = result.isFolder ? 'folder' : 'file';
+                                    this.showErrorDialog(
+                                        `Cannot overwrite ${destType} "${sourceName}" with ${sourceType}.`);
+                                    return;
                                 }
+                                
+                                // Same type - ask for override confirmation
+                                const itemType = isMovingFolder ? 'folder' : 'file';
+                                const action = command === 'copy' ? 'Copy' : 'Move';
+                                const message = `"${sourceName}" ${itemType} already exists in "${targetName}". Overwrite?`;
+                                
+                                this.showConfirmDialog(
+                                    message,
+                                    () => {
+                                        // User confirmed override
+                                        this.executePasteCommand(command, sourcePath, isMovingFolder, targetPath, true);
+                                    },
+                                    () => {
+                                        // User cancelled - do nothing
+                                    }
+                                );
+                            } else {
+                                // Destination doesn't exist - proceed with normal operation
+                                const itemType = isMovingFolder ? 'folder' : 'file';
+                                const action = command === 'copy' ? 'Copy' : 'Move';
+                                const message = `${action} "${sourceName}" ${itemType} to "${targetName}" folder?`;
+                                
+                                this.showConfirmDialog(
+                                    message,
+                                    () => {
+                                        // User confirmed
+                                        this.executePasteCommand(command, sourcePath, isMovingFolder, targetPath, false);
+                                    },
+                                    () => {
+                                        // User cancelled - do nothing
+                                    }
+                                );
                             }
                         })
                         .catch(err => {
                             this.showErrorDialog(err);
                         });
                 }
+            }
+
+            executePasteCommand(command, sourcePath, isMovingFolder, targetPath, overwrite) {
+                const tmp = sourcePath.split("/");
+                const name = tmp[tmp.length - 1];
+                const destinationPath = targetPath + "/" + name;
+
+                // If overwriting, remove existing destination node from UI first
+                if (overwrite) {
+                    const existingDestNode = this.nodeMap.get(destinationPath);
+                    if (existingDestNode) {
+                        existingDestNode.destroy();
+                        this.nodeMap.delete(destinationPath);
+                        if (existingDestNode.isFolder) {
+                            // Remove all children of the existing folder from nodeMap
+                            for (const [path, nodeItem] of this.nodeMap.entries()) {
+                                if (path.startsWith(destinationPath + '/')) {
+                                    this.nodeMap.delete(path);
+                                    this.removeExpandedPath(path);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                this.postCommand(command, { 
+                    sourcePath, 
+                    targetPath, 
+                    isFolder: isMovingFolder,
+                    overwrite: overwrite
+                })
+                    .then(() => {
+                        if (command === 'move') {
+                            this.moveTreeNodeUI(sourcePath, targetPath);
+                        }
+                        else if (command === "copy") {
+                            const targetNode = this.nodeMap.get(targetPath);
+
+                            if (targetNode) {
+                                // Ensure target folder is expanded
+                                if (targetNode.isFolder) {
+                                    const li = targetNode.li;
+                                    const wasCollapsed = li.classList.contains('sne-collapsed');
+                                    
+                                    if (wasCollapsed) {
+                                        li.classList.remove('sne-collapsed');
+                                        this.addExpandedPath(targetPath);
+                                    }
+                                    
+                                    let ul = targetNode.getUl();
+                                    if (!ul || wasCollapsed) {
+                                        ul = targetNode.getOrCreateUl();
+                                        // Load children if folder was collapsed
+                                        if (wasCollapsed) {
+                                            this.postCommand('expand', { path: targetPath })
+                                                .then((data) => {
+                                                    ul.innerHTML = '';
+                                                    this.renderTree(data, targetPath);
+                                                })
+                                                .catch(err => {
+                                                    this.showErrorDialog(err);
+                                                });
+                                        } else {
+                                            this.renderNode({
+                                                name,
+                                                fullPath: destinationPath,
+                                                isFolder: isMovingFolder,
+                                            }, ul);
+                                        }
+                                    } else {
+                                        this.renderNode({
+                                            name,
+                                            fullPath: destinationPath,
+                                            isFolder: isMovingFolder,
+                                        }, ul);
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .catch(err => {
+                        this.showErrorDialog(err);
+                    });
             }
 
             showErrorDialog(errorMessage) {
@@ -885,6 +1065,83 @@
                 document.body.appendChild(dialog);
             }
 
+            showConfirmDialog(message, onConfirm, onCancel) {
+                const existing = document.getElementById('sne-confirm-dialog');
+                if (existing) existing.remove();
+
+                const dialog = document.createElement('div');
+                dialog.id = 'sne-confirm-dialog';
+                dialog.style.position = 'fixed';
+                dialog.style.top = '50%';
+                dialog.style.left = '50%';
+                dialog.style.transform = 'translate(-50%, -50%)';
+                dialog.style.background = 'var(--vscode-editorWidget-background)';
+                dialog.style.color = 'var(--vscode-editorWidget-foreground)';
+                dialog.style.border = '1px solid var(--vscode-editorWidget-border)';
+                dialog.style.padding = '16px';
+                dialog.style.zIndex = '10000';
+                dialog.style.minWidth = '280px';
+                dialog.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.4)';
+                dialog.style.borderRadius = '6px';
+
+                const messageDiv = document.createElement('div');
+                messageDiv.textContent = message;
+                messageDiv.style.marginBottom = '16px';
+                dialog.appendChild(messageDiv);
+
+                const buttonContainer = document.createElement('div');
+                buttonContainer.style.display = 'flex';
+                buttonContainer.style.gap = '8px';
+                buttonContainer.style.justifyContent = 'flex-end';
+
+                const cancelButton = document.createElement('button');
+                cancelButton.textContent = 'Cancel';
+                cancelButton.style.padding = '4px 12px';
+                cancelButton.style.background = 'var(--vscode-button-secondaryBackground)';
+                cancelButton.style.color = 'var(--vscode-button-secondaryForeground)';
+                cancelButton.style.border = 'none';
+                cancelButton.style.borderRadius = '4px';
+                cancelButton.style.cursor = 'pointer';
+                cancelButton.style.marginRight = '8px';
+
+                const confirmButton = document.createElement('button');
+                confirmButton.textContent = 'Confirm';
+                confirmButton.style.padding = '4px 12px';
+                confirmButton.style.background = 'var(--vscode-button-background)';
+                confirmButton.style.color = 'var(--vscode-button-foreground)';
+                confirmButton.style.border = 'none';
+                confirmButton.style.borderRadius = '4px';
+                confirmButton.style.cursor = 'pointer';
+
+                cancelButton.onmouseover = () => {
+                    cancelButton.style.background = 'var(--vscode-button-secondaryHoverBackground)';
+                };
+                cancelButton.onmouseout = () => {
+                    cancelButton.style.background = 'var(--vscode-button-secondaryBackground)';
+                };
+                confirmButton.onmouseover = () => {
+                    confirmButton.style.background = 'var(--vscode-button-hoverBackground)';
+                };
+                confirmButton.onmouseout = () => {
+                    confirmButton.style.background = 'var(--vscode-button-background)';
+                };
+
+                cancelButton.onclick = () => {
+                    dialog.remove();
+                    if (onCancel) onCancel();
+                };
+
+                confirmButton.onclick = () => {
+                    dialog.remove();
+                    if (onConfirm) onConfirm();
+                };
+
+                buttonContainer.appendChild(cancelButton);
+                buttonContainer.appendChild(confirmButton);
+                dialog.appendChild(buttonContainer);
+                document.body.appendChild(dialog);
+            }
+
             selectItem(nodeItem) {
                 if (this.selectedNode) {
                     this.selectedNode.toggleSelect(false);
@@ -901,24 +1158,97 @@
 
                 const baseName = sourceNode.name;
                 const isFolder = sourceNode.isFolder;
+                const destinationPath = `${targetPath}/${baseName}`;
+
+                // Check if destination already exists in UI (for overwrite case)
+                const existingDestNode = this.nodeMap.get(destinationPath);
+                if (existingDestNode) {
+                    // Remove existing destination node
+                    existingDestNode.destroy();
+                    this.nodeMap.delete(destinationPath);
+                    if (existingDestNode.isFolder) {
+                        // Remove all children of the existing folder from nodeMap
+                        for (const [path, nodeItem] of this.nodeMap.entries()) {
+                            if (path.startsWith(destinationPath + '/')) {
+                                this.nodeMap.delete(path);
+                                this.removeExpandedPath(path);
+                            }
+                        }
+                    }
+                }
 
                 sourceNode.destroy();
                 this.nodeMap.delete(sourcePath);
 
-                const newNode = {
-                    name: baseName,
-                    fullPath: `${targetPath}/${baseName}`,
-                    isFolder: isFolder
-                };
-
                 const targetNode = this.nodeMap.get(targetPath);
-                const ul = targetNode.getUl();
+                if (!targetNode) {
+                    // Target node not found, request refresh from backend
+                    this.showErrorDialog('Target folder not found. Please refresh the tree.');
+                    this.postCommand('ready', {})
+                        .then((data) => {
+                            this.reset();
+                            this.renderTree(data.children || data);
+                            if (data.treeState && data.treeState.length > 0) {
+                                setTimeout(() => {
+                                    this.restoreTreeState(data.treeState);
+                                }, 100);
+                            }
+                        })
+                        .catch(err => {
+                            this.showErrorDialog(err);
+                        });
+                    return;
+                }
 
-                if (ul) {
-                    targetNode.toggleExpand(true);
-                    this.renderNode(newNode, ul, false);
+                // Ensure target folder is expanded
+                if (targetNode.isFolder) {
+                    const li = targetNode.li;
+                    const wasCollapsed = li.classList.contains('sne-collapsed');
+                    
+                    if (wasCollapsed) {
+                        li.classList.remove('sne-collapsed');
+                        this.addExpandedPath(targetPath);
+                    }
+
+                    // Get or create the UL for the target folder
+                    let ul = targetNode.getUl();
+                    
+                    if (!ul || wasCollapsed) {
+                        // If UL doesn't exist or folder was collapsed, create it and load children
+                        ul = targetNode.getOrCreateUl();
+                        // Load children from backend (which includes the moved item)
+                        this.postCommand('expand', { path: targetPath })
+                            .then((data) => {
+                                // Clear existing children in UL to avoid duplicates
+                                ul.innerHTML = '';
+                                // Render all children (including the moved item)
+                                this.renderTree(data, targetPath);
+                            })
+                            .catch(err => {
+                                this.showErrorDialog(err);
+                            });
+                    } else {
+                        // Folder is already expanded, just render the moved node
+                        const newNode = {
+                            name: baseName,
+                            fullPath: destinationPath,
+                            isFolder: isFolder
+                        };
+                        this.renderNode(newNode, ul, false);
+                    }
                 } else {
-                    targetNode.wrapper.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    // Target is a file (shouldn't happen, but handle it)
+                    const parentPath = targetPath.substring(0, targetPath.lastIndexOf('/'));
+                    const parentNode = this.nodeMap.get(parentPath);
+                    if (parentNode) {
+                        const ul = parentNode.getOrCreateUl();
+                        const newNode = {
+                            name: baseName,
+                            fullPath: destinationPath,
+                            isFolder: isFolder
+                        };
+                        this.renderNode(newNode, ul, false);
+                    }
                 }
             }
 

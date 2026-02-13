@@ -79,13 +79,18 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
         case 'move': {
           this.handleMove(
               message.sourcePath, message.targetPath, message.isFolder,
-              message.callbackId);
+              message.callbackId, message.overwrite || false);
           break;
         }
         case 'copy': {
           this.handleCopy(
               message.sourcePath, message.targetPath, message.isFolder,
-              message.callbackId);
+              message.callbackId, message.overwrite || false);
+          break;
+        }
+        case 'checkDestination': {
+          this.checkDestination(
+              message.destinationPath, message.callbackId);
           break;
         }
         case 'remove': {
@@ -146,9 +151,28 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private checkDestination(destinationPath: string, callbackId: string) {
+    try {
+      if (fs.existsSync(destinationPath)) {
+        const stats = fs.statSync(destinationPath);
+        this.sendCallback(true, '', callbackId, {
+          exists: true,
+          isFolder: stats.isDirectory()
+        });
+      } else {
+        this.sendCallback(true, '', callbackId, {
+          exists: false,
+          isFolder: false
+        });
+      }
+    } catch (err: any) {
+      this.sendCallback(false, `Failed to check destination: ${err.message}`, callbackId);
+    }
+  }
+
   private handleMove(
       source: string, destinationFolder: string, isFolder: boolean,
-      callbackId: string) {
+      callbackId: string, overwrite: boolean = false) {
     const baseName = path.basename(source);
     const destination = path.join(destinationFolder, baseName);
     const relativePath = path.relative(this.rootPath, source).split(path.sep);
@@ -188,12 +212,56 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    // Check if destination exists
+    if (fs.existsSync(destination)) {
+      const destStats = fs.statSync(destination);
+      const destIsFolder = destStats.isDirectory();
+      
+      if (destIsFolder !== isFolder) {
+        // Cannot overwrite file with folder or vice versa
+        const sourceType = isFolder ? 'folder' : 'file';
+        const destType = destIsFolder ? 'folder' : 'file';
+        vscode.window.showErrorMessage(
+            `Cannot overwrite ${destType} "${baseName}" with ${sourceType}.`);
+        this.sendCallback(
+            false,
+            `Cannot overwrite ${destType} with ${sourceType}.`,
+            callbackId);
+        return;
+      }
+
+      if (!overwrite) {
+        // Should not happen if frontend checks properly, but handle it
+        vscode.window.showErrorMessage(
+            `Destination "${baseName}" already exists.`);
+        this.sendCallback(
+            false, `Destination already exists.`, callbackId);
+        return;
+      }
+
+      // Remove existing item before moving
+      try {
+        if (destIsFolder) {
+          fs.rmSync(destination, {recursive: true, force: true});
+        } else {
+          fs.unlinkSync(destination);
+        }
+      } catch (err: any) {
+        vscode.window.showErrorMessage(
+            `Failed to remove existing item: ${err.message}`);
+        this.sendCallback(
+            false, `Failed to remove existing item: ${err.message}`, callbackId);
+        return;
+      }
+    }
+
     try {
       fs.renameSync(source, destination);
       vscode.window.showInformationMessage(
           `Moved "${baseName}" to "${path.basename(destinationFolder)}"`);
       this.sendCallback(true, '', callbackId);
-      this.refresh();
+      // Don't refresh here - let the UI handle the update via moveTreeNodeUI
+      // this.refresh();
     } catch (err: any) {
       vscode.window.showErrorMessage(`Move failed: ${err.message}`);
       this.sendCallback(false, `Move failed: ${err.message}`, callbackId);
@@ -202,7 +270,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
 
   private handleCopy(
       source: string, destinationFolder: string, isFolder: boolean,
-      callbackId: string) {
+      callbackId: string, overwrite: boolean = false) {
     const baseName = path.basename(source);
     const destination = path.join(destinationFolder, baseName);
     const relativePath = path.relative(this.rootPath, source).split(path.sep);
@@ -222,25 +290,65 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
         this.sendCallback(false, `Failed to copy folder.`, callbackId);
         return;
       }
+    }
+
+    // Check if destination exists
+    if (fs.existsSync(destination)) {
+      const destStats = fs.statSync(destination);
+      const destIsFolder = destStats.isDirectory();
+      
+      if (destIsFolder !== isFolder) {
+        // Cannot overwrite file with folder or vice versa
+        const sourceType = isFolder ? 'folder' : 'file';
+        const destType = destIsFolder ? 'folder' : 'file';
+        vscode.window.showErrorMessage(
+            `Cannot overwrite ${destType} "${baseName}" with ${sourceType}.`);
+        this.sendCallback(
+            false,
+            `Cannot overwrite ${destType} with ${sourceType}.`,
+            callbackId);
+        return;
+      }
+
+      if (!overwrite) {
+        // Should not happen if frontend checks properly, but handle it
+        vscode.window.showErrorMessage(
+            `Destination "${baseName}" already exists.`);
+        this.sendCallback(
+            false, `Destination already exists.`, callbackId);
+        return;
+      }
+
+      // Remove existing item before copying
       try {
+        if (destIsFolder) {
+          fs.rmSync(destination, {recursive: true, force: true});
+        } else {
+          fs.unlinkSync(destination);
+        }
+      } catch (err: any) {
+        vscode.window.showErrorMessage(
+            `Failed to remove existing item: ${err.message}`);
+        this.sendCallback(
+            false, `Failed to remove existing item: ${err.message}`, callbackId);
+        return;
+      }
+    }
+
+    try {
+      if (isFolder) {
         this.copyFolderRecursiveSync(source, destination);
         vscode.window.showInformationMessage(`Copied folder "${baseName}" to "${
             path.basename(destinationFolder)}"`);
-        this.sendCallback(true, '', callbackId);
-      } catch (err: any) {
-        vscode.window.showErrorMessage(`Copy failed: ${err.message}`);
-        this.sendCallback(false, `Copy failed: ${err.message}`, callbackId);
-      }
-    } else {
-      try {
+      } else {
         fs.copyFileSync(source, destination);
         vscode.window.showInformationMessage(`Copied file "${baseName}" to "${
             path.basename(destinationFolder)}"`);
-        this.sendCallback(true, '', callbackId);
-      } catch (err: any) {
-        vscode.window.showErrorMessage(`Copy failed: ${err.message}`);
-        this.sendCallback(false, `Copy failed: ${err.message}`, callbackId);
       }
+      this.sendCallback(true, '', callbackId);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Copy failed: ${err.message}`);
+      this.sendCallback(false, `Copy failed: ${err.message}`, callbackId);
     }
   }
 
