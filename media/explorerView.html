@@ -1252,9 +1252,52 @@
                 }
             }
 
+            findInsertionPosition(node, parentUl, excludeLi = null) {
+                // Get all existing children as an array, excluding the node we're inserting
+                const children = Array.from(parentUl.children).filter(li => li !== excludeLi);
+                
+                // Find the position where this node should be inserted
+                // Sort order: folders first, then files, both alphabetically
+                for (let i = 0; i < children.length; i++) {
+                    const childLi = children[i];
+                    const childWrapper = childLi.querySelector('.sne-folder, .sne-file');
+                    if (!childWrapper) continue;
+                    
+                    const childName = childWrapper.querySelector('.sne-editable')?.textContent || '';
+                    const childIsFolder = childWrapper.classList.contains('sne-folder');
+                    
+                    // Compare: folders come before files
+                    if (node.isFolder && !childIsFolder) {
+                        return childLi; // Insert before this file
+                    }
+                    if (!node.isFolder && childIsFolder) {
+                        continue; // Skip folders, we're a file
+                    }
+                    
+                    // Same type, compare alphabetically
+                    if (node.name.localeCompare(childName) < 0) {
+                        return childLi; // Insert before this node
+                    }
+                }
+                
+                // Insert at the end (null means append)
+                return null;
+            }
+
             renderNode(node, parentUl, isTopLevel = false) {
+                // Create the node item (it will append itself to parentUl)
                 const item = new NodeItem(this, node, parentUl, isTopLevel);
                 this.nodeMap.set(node.fullPath, item);
+                
+                // Find the correct insertion position (excluding the node we just created)
+                const insertBefore = this.findInsertionPosition(node, parentUl, item.li);
+                
+                // If we need to move it, remove and re-insert at correct position
+                if (insertBefore !== null) {
+                    parentUl.removeChild(item.li);
+                    parentUl.insertBefore(item.li, insertBefore);
+                }
+                // If insertBefore is null, the node is already at the end (correct position)
             }
 
             renderTree(data, parentPath = null) {

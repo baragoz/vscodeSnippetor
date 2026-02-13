@@ -387,6 +387,13 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           const fullPath = path.join(dirPath, name);
           const isFolder = fs.statSync(fullPath).isDirectory();
           return {name, fullPath, isFolder};
+        })
+        .sort((a, b) => {
+          // Folders first, then files
+          if (a.isFolder && !b.isFolder) return -1;
+          if (!a.isFolder && b.isFolder) return 1;
+          // Within same type, sort alphabetically by name
+          return a.name.localeCompare(b.name);
         });
   }
 
