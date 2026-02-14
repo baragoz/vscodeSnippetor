@@ -39,6 +39,7 @@ const fs = __importStar(require("fs"));
 const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const vscode = __importStar(require("vscode"));
+const SnippetExplorerCommandHandler_1 = require("./SnippetExplorerCommandHandler");
 class FileTreeItem extends vscode.TreeItem {
     constructor(fullPath, label, collapsibleState) {
         super(label, collapsibleState);
@@ -62,6 +63,9 @@ class SnippetExplorerProvider {
         this.context = context;
         this.initializeStorage();
         this.ensureFolders();
+    }
+    setListener(listener) {
+        this.listener = listener;
     }
     resolveWebviewView(webviewView) {
         this._view = webviewView;
@@ -87,7 +91,12 @@ class SnippetExplorerProvider {
                     const oldPath = message.oldPath;
                     const newPath = path.join(path.dirname(oldPath), message.newName);
                     try {
+                        const isDir = fs.statSync(oldPath).isDirectory();
                         fs.renameSync(oldPath, newPath);
+                        // Notify listener
+                        if (this.listener) {
+                            this.listener.onNodeRenamed(oldPath, newPath, isDir);
+                        }
                         this.sendCallback(true, '', message.callbackId, {});
                     }
                     catch (err) {
@@ -97,11 +106,37 @@ class SnippetExplorerProvider {
                     break;
                 }
                 case 'move': {
-                    this.handleMove(message.sourcePath, message.targetPath, message.isFolder, message.callbackId, message.overwrite || false);
+                    const handler = new SnippetExplorerCommandHandler_1.MoveCommandHandler(this.rootPath, this.listener, this.sendCallback.bind(this));
+                    const params = {
+                        sourcePath: message.sourcePath,
+                        targetPath: message.targetPath,
+                        isFolder: message.isFolder,
+                        overwrite: message.overwrite || false,
+                        callbackId: message.callbackId,
+                        rootPath: this.rootPath,
+                        listener: this.listener,
+                        sendCallback: this.sendCallback.bind(this)
+                    };
+                    handler.execute(params).catch(err => {
+                        vscode.window.showErrorMessage(`Move operation failed: ${err}`);
+                    });
                     break;
                 }
                 case 'copy': {
-                    this.handleCopy(message.sourcePath, message.targetPath, message.isFolder, message.callbackId, message.overwrite || false);
+                    const handler = new SnippetExplorerCommandHandler_1.CopyCommandHandler(this.rootPath, this.listener, this.sendCallback.bind(this));
+                    const params = {
+                        sourcePath: message.sourcePath,
+                        targetPath: message.targetPath,
+                        isFolder: message.isFolder,
+                        overwrite: message.overwrite || false,
+                        callbackId: message.callbackId,
+                        rootPath: this.rootPath,
+                        listener: this.listener,
+                        sendCallback: this.sendCallback.bind(this)
+                    };
+                    handler.execute(params).catch(err => {
+                        vscode.window.showErrorMessage(`Copy operation failed: ${err}`);
+                    });
                     break;
                 }
                 case 'checkDestination': {
@@ -109,12 +144,18 @@ class SnippetExplorerProvider {
                     break;
                 }
                 case 'remove': {
-                    this.removeByPath(message.fullPath, message.name, message.isFolder)
-                        .then((data) => {
-                        this.sendCallback(true, '', message.callbackId, { path: data });
-                    })
-                        .catch(err => {
-                        this.sendCallback(false, '' + err, message.callbackId);
+                    const handler = new SnippetExplorerCommandHandler_1.RemoveCommandHandler(this.rootPath, this.listener, this.sendCallback.bind(this));
+                    const params = {
+                        fullPath: message.fullPath,
+                        name: message.name,
+                        isFolder: message.isFolder,
+                        callbackId: message.callbackId,
+                        rootPath: this.rootPath,
+                        listener: this.listener,
+                        sendCallback: this.sendCallback.bind(this)
+                    };
+                    handler.execute(params).catch(err => {
+                        vscode.window.showErrorMessage(`Remove operation failed: ${err}`);
                     });
                     break;
                 }
@@ -177,163 +218,6 @@ class SnippetExplorerProvider {
         }
         catch (err) {
             this.sendCallback(false, `Failed to check destination: ${err.message}`, callbackId);
-        }
-    }
-    handleMove(source, destinationFolder, isFolder, callbackId, overwrite = false) {
-        const baseName = path.basename(source);
-        const destination = path.join(destinationFolder, baseName);
-        const relativePath = path.relative(this.rootPath, source).split(path.sep);
-        const isTopFolder = relativePath.length < 2;
-        if (isTopFolder) {
-            vscode.window.showWarningMessage(`Cannot move top-level folder: ${baseName}`);
-            this.sendCallback(false, `Cannot move top-level folder: ${baseName}`, callbackId);
-            return;
-        }
-        if (isFolder) {
-            if (source === destination || destination.startsWith(source + path.sep)) {
-                vscode.window.showWarningMessage(`Failed to move folder.`);
-                this.sendCallback(false, `Failed to move folder.`, callbackId);
-                return;
-            }
-        }
-        else {
-            const baseDir = path.dirname(source);
-            if (baseDir == destination) {
-                vscode.window.showWarningMessage(`There is no file sort operation support.`);
-                this.sendCallback(false, `There is no file sort operation support.`, callbackId);
-                return;
-            }
-            if (baseDir === this.rootPath) {
-                vscode.window.showWarningMessage(`Failed to drop file to the root folder.`);
-                this.sendCallback(false, `Failed to drop file to the root folder.`, callbackId);
-                return;
-            }
-        }
-        // Check if destination exists
-        if (fs.existsSync(destination)) {
-            const destStats = fs.statSync(destination);
-            const destIsFolder = destStats.isDirectory();
-            if (destIsFolder !== isFolder) {
-                // Cannot overwrite file with folder or vice versa
-                const sourceType = isFolder ? 'folder' : 'file';
-                const destType = destIsFolder ? 'folder' : 'file';
-                vscode.window.showErrorMessage(`Cannot overwrite ${destType} "${baseName}" with ${sourceType}.`);
-                this.sendCallback(false, `Cannot overwrite ${destType} with ${sourceType}.`, callbackId);
-                return;
-            }
-            if (!overwrite) {
-                // Should not happen if frontend checks properly, but handle it
-                vscode.window.showErrorMessage(`Destination "${baseName}" already exists.`);
-                this.sendCallback(false, `Destination already exists.`, callbackId);
-                return;
-            }
-            // Remove existing item before moving
-            try {
-                if (destIsFolder) {
-                    fs.rmSync(destination, { recursive: true, force: true });
-                }
-                else {
-                    fs.unlinkSync(destination);
-                }
-            }
-            catch (err) {
-                vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
-                this.sendCallback(false, `Failed to remove existing item: ${err.message}`, callbackId);
-                return;
-            }
-        }
-        try {
-            fs.renameSync(source, destination);
-            vscode.window.showInformationMessage(`Moved "${baseName}" to "${path.basename(destinationFolder)}"`);
-            this.sendCallback(true, '', callbackId);
-            // Don't refresh here - let the UI handle the update via moveTreeNodeUI
-            // this.refresh();
-        }
-        catch (err) {
-            vscode.window.showErrorMessage(`Move failed: ${err.message}`);
-            this.sendCallback(false, `Move failed: ${err.message}`, callbackId);
-        }
-    }
-    handleCopy(source, destinationFolder, isFolder, callbackId, overwrite = false) {
-        const baseName = path.basename(source);
-        const destination = path.join(destinationFolder, baseName);
-        const relativePath = path.relative(this.rootPath, source).split(path.sep);
-        const isTopFolder = relativePath.length < 2;
-        if (isTopFolder) {
-            vscode.window.showWarningMessage(`Cannot copy top-level folder: ${baseName}`);
-            this.sendCallback(false, `Cannot copy top-level folder: ${baseName}`, callbackId);
-            return;
-        }
-        if (isFolder) {
-            if (source === destination || destination.startsWith(source + path.sep)) {
-                vscode.window.showWarningMessage(`Failed to copy folder.`);
-                this.sendCallback(false, `Failed to copy folder.`, callbackId);
-                return;
-            }
-        }
-        // Check if destination exists
-        if (fs.existsSync(destination)) {
-            const destStats = fs.statSync(destination);
-            const destIsFolder = destStats.isDirectory();
-            if (destIsFolder !== isFolder) {
-                // Cannot overwrite file with folder or vice versa
-                const sourceType = isFolder ? 'folder' : 'file';
-                const destType = destIsFolder ? 'folder' : 'file';
-                vscode.window.showErrorMessage(`Cannot overwrite ${destType} "${baseName}" with ${sourceType}.`);
-                this.sendCallback(false, `Cannot overwrite ${destType} with ${sourceType}.`, callbackId);
-                return;
-            }
-            if (!overwrite) {
-                // Should not happen if frontend checks properly, but handle it
-                vscode.window.showErrorMessage(`Destination "${baseName}" already exists.`);
-                this.sendCallback(false, `Destination already exists.`, callbackId);
-                return;
-            }
-            // Remove existing item before copying
-            try {
-                if (destIsFolder) {
-                    fs.rmSync(destination, { recursive: true, force: true });
-                }
-                else {
-                    fs.unlinkSync(destination);
-                }
-            }
-            catch (err) {
-                vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
-                this.sendCallback(false, `Failed to remove existing item: ${err.message}`, callbackId);
-                return;
-            }
-        }
-        try {
-            if (isFolder) {
-                this.copyFolderRecursiveSync(source, destination);
-                vscode.window.showInformationMessage(`Copied folder "${baseName}" to "${path.basename(destinationFolder)}"`);
-            }
-            else {
-                fs.copyFileSync(source, destination);
-                vscode.window.showInformationMessage(`Copied file "${baseName}" to "${path.basename(destinationFolder)}"`);
-            }
-            this.sendCallback(true, '', callbackId);
-        }
-        catch (err) {
-            vscode.window.showErrorMessage(`Copy failed: ${err.message}`);
-            this.sendCallback(false, `Copy failed: ${err.message}`, callbackId);
-        }
-    }
-    copyFolderRecursiveSync(src, dest) {
-        if (!fs.existsSync(dest)) {
-            fs.mkdirSync(dest, { recursive: true });
-        }
-        const entries = fs.readdirSync(src, { withFileTypes: true });
-        for (const entry of entries) {
-            const srcPath = path.join(src, entry.name);
-            const destPath = path.join(dest, entry.name);
-            if (entry.isDirectory()) {
-                this.copyFolderRecursiveSync(srcPath, destPath);
-            }
-            else {
-                fs.copyFileSync(srcPath, destPath);
-            }
         }
     }
     readDirectory(dirPath) {
@@ -511,6 +395,10 @@ class SnippetExplorerProvider {
             const newPath = path.join(path.dirname(item.fullPath), newName);
             try {
                 fs.renameSync(item.fullPath, newPath);
+                // Notify listener about the rename
+                if (this.listener) {
+                    this.listener.onNodeRenamed(item.fullPath, newPath, item.isFolder);
+                }
                 this.refresh();
             }
             catch (err) {
@@ -519,33 +407,18 @@ class SnippetExplorerProvider {
         }
     }
     async removeItem(item) {
-        this.removeByPath(item.fullPath, item.label, item.isFolder);
-    }
-    async removeByPath(fullPath, name, isFolder) {
-        return new Promise((resolve, reject) => {
-            // Show confirmation message
-            const confirmed = vscode.window.showWarningMessage(`Delete "${name}"?`, { modal: true }, 'Yes');
-            confirmed.then((data) => {
-                if (data === 'Yes') {
-                    try {
-                        if (isFolder)
-                            fs.rmSync(fullPath, { recursive: true, force: true });
-                        else
-                            fs.unlinkSync(fullPath);
-                        this.refresh();
-                        resolve(fullPath);
-                    }
-                    catch (err) {
-                        vscode.window.showErrorMessage(`Delete failed: ${err.message}`);
-                        reject(`Delete failed: ${err.message}`);
-                    }
-                    return '';
-                }
-                else {
-                    resolve('');
-                }
-            });
-        });
+        const handler = new SnippetExplorerCommandHandler_1.RemoveCommandHandler(this.rootPath, this.listener, this.sendCallback.bind(this));
+        const params = {
+            fullPath: item.fullPath,
+            name: item.label,
+            isFolder: item.isFolder,
+            callbackId: '', // Not used for this public method
+            rootPath: this.rootPath,
+            listener: this.listener,
+            sendCallback: this.sendCallback.bind(this)
+        };
+        await handler.execute(params);
+        this.refresh();
     }
     async addSnippet() {
         if (this._view) {
