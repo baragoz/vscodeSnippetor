@@ -9,7 +9,7 @@ import {
   RemoveCommandHandler,
   MoveCopyCommandParams,
   RemoveCommandParams
-} from './CommandHandlers';
+} from './SnippetExplorerCommandHandler';
 
 interface SnippetMapping {
   folder: string;

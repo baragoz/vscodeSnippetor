@@ -1,4 +1,4 @@
-// File: CommandHandlers.ts
+// File: SnippetExplorerCommandHandler.ts
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
