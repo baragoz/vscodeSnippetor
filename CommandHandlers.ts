@@ -1,0 +1,474 @@
+// File: CommandHandlers.ts
+import * as fs from 'fs';
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { SnippetExplorerListener } from './SnippetExplorerProvider';
+
+/**
+ * Common interface for command handlers
+ */
+export interface ICommandHandler {
+  /**
+   * Executes the command with the given parameters
+   * @param params Command-specific parameters
+   * @returns Promise that resolves when the command completes
+   */
+  execute(params: CommandParams): Promise<void>;
+}
+
+/**
+ * Base parameters for all commands
+ */
+export interface BaseCommandParams {
+  callbackId: string;
+  rootPath: string;
+  listener?: SnippetExplorerListener;
+  sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void;
+}
+
+/**
+ * Parameters for move and copy commands
+ */
+export interface MoveCopyCommandParams extends BaseCommandParams {
+  sourcePath: string;
+  targetPath: string;
+  isFolder: boolean;
+  overwrite?: boolean;
+}
+
+/**
+ * Parameters for remove command
+ */
+export interface RemoveCommandParams extends BaseCommandParams {
+  fullPath: string;
+  name: string;
+  isFolder: boolean;
+}
+
+/**
+ * Union type for all command parameters
+ */
+export type CommandParams = MoveCopyCommandParams | RemoveCommandParams;
+
+/**
+ * Base class for command handlers with common functionality
+ */
+export abstract class BaseCommandHandler implements ICommandHandler {
+  protected rootPath: string;
+  protected listener?: SnippetExplorerListener;
+  protected sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void;
+
+  constructor(
+    rootPath: string,
+    listener: SnippetExplorerListener | undefined,
+    sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void
+  ) {
+    this.rootPath = rootPath;
+    this.listener = listener;
+    this.sendCallback = sendCallback;
+  }
+
+  abstract execute(params: CommandParams): Promise<void>;
+
+  /**
+   * Sanitizes and normalizes a file path
+   */
+  protected sanitizePath(filePath: string): string {
+    return path.normalize(filePath);
+  }
+
+  /**
+   * Checks that source is not a top-level folder and destination is not root path
+   */
+  protected checkSourceAndDestinationPaths(
+    source: string,
+    destinationFolder: string,
+    baseName: string,
+    isFolder: boolean
+  ): string | null {
+    const relativePath = path.relative(this.rootPath, source).split(path.sep);
+    const isTopFolder = relativePath.length < 2;
+
+    if (isTopFolder) {
+      return `Cannot move top-level folder: ${baseName}`;
+    }
+
+    if (destinationFolder === this.rootPath) {
+      return `Failed to drop to the root folder.`;
+    }
+
+    if (!isFolder) {
+      const baseDir = path.dirname(source);
+      if (baseDir === this.rootPath) {
+        return `Failed to drop file to the root folder.`;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Checks that source folder != destination folder or source file folder != dest folder
+   */
+  protected checkSourceDestinationNotEqual(
+    source: string,
+    destination: string,
+    isFolder: boolean
+  ): string | null {
+    if (isFolder) {
+      if (source === destination || destination.startsWith(source + path.sep)) {
+        return `Failed to move folder.`;
+      }
+    } else {
+      const baseDir = path.dirname(source);
+      if (baseDir === destination) {
+        return `There is no file sort operation support.`;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Checks that destination exists and is a directory
+   */
+  protected checkDestinationExistsAndIsDir(destinationFolder: string): string | null {
+    if (!fs.existsSync(destinationFolder)) {
+      return `Destination does not exist.`;
+    }
+
+    const destStats = fs.statSync(destinationFolder);
+    if (!destStats.isDirectory()) {
+      return `Destination is not a directory.`;
+    }
+
+    return null;
+  }
+}
+
+/**
+ * Handler for move commands
+ */
+export class MoveCommandHandler extends BaseCommandHandler {
+  async execute(params: CommandParams): Promise<void> {
+    if (!this.isMoveCopyParams(params)) {
+      throw new Error('Invalid parameters for MoveCommandHandler');
+    }
+
+    const source = this.sanitizePath(params.sourcePath);
+    const destinationFolder = this.sanitizePath(params.targetPath);
+    const baseName = path.basename(source);
+    const destination = path.join(destinationFolder, baseName);
+    const overwrite = params.overwrite || false;
+
+    // Check 1: Source not top-level, destination not root
+    const pathCheckError = this.checkSourceAndDestinationPaths(
+      source,
+      destinationFolder,
+      baseName,
+      params.isFolder
+    );
+    if (pathCheckError) {
+      vscode.window.showWarningMessage(pathCheckError);
+      this.sendCallback(false, pathCheckError, params.callbackId);
+      return;
+    }
+
+    // Check 2: Source folder != destination folder or source file folder != dest folder
+    const equalityCheckError = this.checkSourceDestinationNotEqual(
+      source,
+      destination,
+      params.isFolder
+    );
+    if (equalityCheckError) {
+      vscode.window.showWarningMessage(equalityCheckError);
+      this.sendCallback(false, equalityCheckError, params.callbackId);
+      return;
+    }
+
+    // Check 3: Destination exists and is a directory
+    const destExistsError = this.checkDestinationExistsAndIsDir(destinationFolder);
+    if (destExistsError) {
+      vscode.window.showWarningMessage(`Failed to drop: ${destExistsError}`);
+      this.sendCallback(false, `Failed to drop: ${destExistsError}`, params.callbackId);
+      return;
+    }
+
+    // Check 4 & 5: Overwrite validation based on source type
+    let overwriteCheckError: string | null = null;
+    if (params.isFolder) {
+      overwriteCheckError = this.checkFolderMoveOverwrite(destination, baseName, overwrite);
+    } else {
+      overwriteCheckError = this.checkFileMoveOverwrite(destination, baseName, overwrite);
+    }
+
+    if (overwriteCheckError) {
+      vscode.window.showErrorMessage(overwriteCheckError);
+      this.sendCallback(false, overwriteCheckError, params.callbackId);
+      return;
+    }
+
+    // Handle overwrite removal if needed
+    if (fs.existsSync(destination) && overwrite) {
+      const destStats = fs.statSync(destination);
+      const destIsFolder = destStats.isDirectory();
+
+      try {
+        if (destIsFolder) {
+          fs.rmSync(destination, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(destination);
+        }
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
+        this.sendCallback(false, `Failed to remove existing item: ${err.message}`, params.callbackId);
+        return;
+      }
+    }
+
+    // Perform the move
+    try {
+      fs.renameSync(source, destination);
+      vscode.window.showInformationMessage(
+        `Moved "${baseName}" to "${path.basename(destinationFolder)}"`
+      );
+
+      // Notify listener about the move
+      if (this.listener) {
+        if (overwrite) {
+          if (fs.existsSync(destination)) {
+            this.listener.onNodeOverwrite(destination, params.isFolder);
+          } else {
+            this.listener.onNodeRemoved(destination, params.isFolder);
+          }
+        } else {
+          this.listener.onNodeMoved(source, destination, params.isFolder);
+        }
+      }
+
+      this.sendCallback(true, '', params.callbackId);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Move failed: ${err.message}`);
+      this.sendCallback(false, `Move failed: ${err.message}`, params.callbackId);
+    }
+  }
+
+  private checkFileMoveOverwrite(
+    destination: string,
+    baseName: string,
+    overwrite: boolean
+  ): string | null {
+    if (!fs.existsSync(destination)) {
+      return null;
+    }
+
+    const destStats = fs.statSync(destination);
+    const destIsFolder = destStats.isDirectory();
+
+    if (destIsFolder) {
+      return `Cannot overwrite folder "${baseName}" with file.`;
+    }
+
+    if (!overwrite) {
+      return `Destination "${baseName}" already exists.`;
+    }
+
+    return null;
+  }
+
+  private checkFolderMoveOverwrite(
+    destination: string,
+    baseName: string,
+    overwrite: boolean
+  ): string | null {
+    if (!fs.existsSync(destination)) {
+      return null;
+    }
+
+    const destStats = fs.statSync(destination);
+    const destIsFolder = destStats.isDirectory();
+
+    if (!destIsFolder) {
+      return `Cannot overwrite file "${baseName}" with folder.`;
+    }
+
+    if (!overwrite) {
+      return `Destination folder "${baseName}" already exists.`;
+    }
+
+    return null;
+  }
+
+  private isMoveCopyParams(params: CommandParams): params is MoveCopyCommandParams {
+    return 'sourcePath' in params && 'targetPath' in params;
+  }
+}
+
+/**
+ * Handler for copy commands
+ */
+export class CopyCommandHandler extends BaseCommandHandler {
+  async execute(params: CommandParams): Promise<void> {
+    if (!this.isMoveCopyParams(params)) {
+      throw new Error('Invalid parameters for CopyCommandHandler');
+    }
+
+    const source = this.sanitizePath(params.sourcePath);
+    const destinationFolder = this.sanitizePath(params.targetPath);
+    const baseName = path.basename(source);
+    const destination = path.join(destinationFolder, baseName);
+    const overwrite = params.overwrite || false;
+    const relativePath = path.relative(this.rootPath, source).split(path.sep);
+    const isTopFolder = relativePath.length < 2;
+
+    if (isTopFolder) {
+      vscode.window.showWarningMessage(`Cannot copy top-level folder: ${baseName}`);
+      this.sendCallback(false, `Cannot copy top-level folder: ${baseName}`, params.callbackId);
+      return;
+    }
+
+    if (params.isFolder) {
+      if (source === destination || destination.startsWith(source + path.sep)) {
+        vscode.window.showWarningMessage(`Failed to copy folder.`);
+        this.sendCallback(false, `Failed to copy folder.`, params.callbackId);
+        return;
+      }
+    }
+
+    // Check if destination exists
+    if (fs.existsSync(destination)) {
+      const destStats = fs.statSync(destination);
+      const destIsFolder = destStats.isDirectory();
+
+      if (destIsFolder !== params.isFolder) {
+        const sourceType = params.isFolder ? 'folder' : 'file';
+        const destType = destIsFolder ? 'folder' : 'file';
+        vscode.window.showErrorMessage(
+          `Cannot overwrite ${destType} "${baseName}" with ${sourceType}.`
+        );
+        this.sendCallback(
+          false,
+          `Cannot overwrite ${destType} with ${sourceType}.`,
+          params.callbackId
+        );
+        return;
+      }
+
+      if (!overwrite) {
+        vscode.window.showErrorMessage(`Destination "${baseName}" already exists.`);
+        this.sendCallback(false, `Destination already exists.`, params.callbackId);
+        return;
+      }
+
+      // Remove existing item before copying
+      try {
+        if (destIsFolder) {
+          fs.rmSync(destination, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(destination);
+        }
+      } catch (err: any) {
+        vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
+        this.sendCallback(false, `Failed to remove existing item: ${err.message}`, params.callbackId);
+        return;
+      }
+    }
+
+    try {
+      if (params.isFolder) {
+        this.copyFolderRecursiveSync(source, destination);
+        vscode.window.showInformationMessage(
+          `Copied folder "${baseName}" to "${path.basename(destinationFolder)}"`
+        );
+        if (overwrite && fs.existsSync(destination) && this.listener) {
+          this.listener.onNodeOverwrite(destination, params.isFolder);
+        }
+      } else {
+        if (fs.existsSync(destination) && this.listener) {
+          this.listener.onNodeOverwrite(destination, false);
+        }
+        fs.copyFileSync(source, destination);
+        vscode.window.showInformationMessage(
+          `Copied file "${baseName}" to "${path.basename(destinationFolder)}"`
+        );
+      }
+      this.sendCallback(true, '', params.callbackId);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Copy failed: ${err.message}`);
+      this.sendCallback(false, `Copy failed: ${err.message}`, params.callbackId);
+    }
+  }
+
+  private copyFolderRecursiveSync(src: string, dest: string): void {
+    if (!fs.existsSync(dest)) {
+      fs.mkdirSync(dest, { recursive: true });
+    }
+
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      if (entry.isDirectory()) {
+        this.copyFolderRecursiveSync(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+
+  private isMoveCopyParams(params: CommandParams): params is MoveCopyCommandParams {
+    return 'sourcePath' in params && 'targetPath' in params;
+  }
+}
+
+/**
+ * Handler for remove commands
+ */
+export class RemoveCommandHandler extends BaseCommandHandler {
+  async execute(params: CommandParams): Promise<void> {
+    if (!this.isRemoveParams(params)) {
+      throw new Error('Invalid parameters for RemoveCommandHandler');
+    }
+
+    return new Promise((resolve) => {
+      const confirmed = vscode.window.showWarningMessage(
+        `Delete "${params.name}"?`,
+        { modal: true },
+        'Yes'
+      );
+
+      confirmed.then((data) => {
+        if (data === 'Yes') {
+          try {
+            // Notify listener about the removal
+            if (this.listener) {
+              this.listener.onNodeRemoved(params.fullPath, params.isFolder);
+            }
+
+            if (params.isFolder) {
+              fs.rmSync(params.fullPath, { recursive: true, force: true });
+            } else {
+              fs.unlinkSync(params.fullPath);
+            }
+
+            this.sendCallback(true, '', params.callbackId, { path: params.fullPath });
+            resolve();
+          } catch (err: any) {
+            vscode.window.showErrorMessage(`Delete failed: ${err.message}`);
+            this.sendCallback(false, `Delete failed: ${err.message}`, params.callbackId);
+            resolve();
+          }
+        } else {
+          this.sendCallback(true, '', params.callbackId, { path: '' });
+          resolve();
+        }
+      });
+    });
+  }
+
+  private isRemoveParams(params: CommandParams): params is RemoveCommandParams {
+    return 'fullPath' in params && 'name' in params && !('sourcePath' in params);
+  }
+}
