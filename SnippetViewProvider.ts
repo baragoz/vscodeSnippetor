@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { SnippetExplorerProvider } from './SnippetExplorerProvider';
+import * as os from 'os';
+import { SnippetExplorerProvider, SnippetExplorerListener } from './SnippetExplorerProvider';
 
 function generateUID(): string {
   return 'uid-' + Math.random().toString(36).substring(2, 10);
@@ -33,6 +34,10 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
   private cachedSnippetLine: string = '';
   // ref to the explorer view
   private explorer: SnippetExplorerProvider;
+  // Full path of currently open snippet file (absolute path)
+  private currentSnippetFullPath: string = '';
+  // Listener helper instance
+  private listenerHelper?: SnippetExplorerListenerHelper;
 
   constructor(context: vscode.ExtensionContext, explorer: SnippetExplorerProvider) {
     this.context = context;
@@ -115,6 +120,12 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
               this.errorMessage = "";
               this.snippetHead = { title: "", description: "", path: ""};
               this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: ""};
+              this.currentSnippetFullPath = '';
+              
+              // Reset the listener's active file
+              if (this.listenerHelper) {
+                this.listenerHelper.setActiveFile('');
+              }
   }
 
   resolveWebviewView(
@@ -286,6 +297,14 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
     this.refresh();
   }
 
+  /**
+   * Close snippet (used by listener helper)
+   */
+  public closeSnippet(): void {
+    this.resetSnippetState();
+    this.refresh();
+  }
+
   //
   // openSnippet API
   //
@@ -303,6 +322,7 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
         this.snippetHead = { title: "", description: "", path: head.path};
         this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: head.path};
         this.snippetList = [];
+        this.currentSnippetFullPath = '';
       }
       else {
         this.errorMessage = ""; // reset error
@@ -311,6 +331,14 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
         this.snippetHeadProposal = Object.assign({}, head);
         // Copy snippets list from saved data in file
         this.snippetList = snippetList;
+        // Store full path: convert relative path (like /Drafts/file.snippet) to full path
+        const rootPath = path.join(os.homedir(), '.vscode', 'archsnippets');
+        this.currentSnippetFullPath = head.path ? path.join(rootPath, head.path.substring(1)) : '';
+        
+        // Update the listener's active file
+        if (this.listenerHelper) {
+          this.listenerHelper.setActiveFile(this.currentSnippetFullPath);
+        }
       }
 
       // reset edit and active states
@@ -359,6 +387,34 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
     }
   }
 
+  /**
+   * Send active file update to the view
+   */
+  public sendActiveFileUpdate(action: string, newFileName: string): void {
+    if (this.currentSnippetFullPath !== '') {
+      const rootPath = path.join(os.homedir(), '.vscode', 'archsnippets');
+      const newRelativePath = '/' + path.relative(rootPath, newFileName);
+      
+      // Update both original and proposal paths
+      this.snippetHead.path = newRelativePath;
+      this.snippetHeadProposal.path = newRelativePath;
+      this.currentSnippetFullPath = newFileName;
+      
+      this.refresh();
+      vscode.window.showInformationMessage(`Snippet ${action}: ${path.basename(newFileName)}`);
+    }
+  }
+
+  /**
+   * Get the explorer listener interface implementation
+   */
+  public getExplorerListener(): SnippetExplorerListener {
+    if (!this.listenerHelper) {
+      this.listenerHelper = new SnippetExplorerListenerHelper(this);
+    }
+    return this.listenerHelper;
+  }
+
   private getHtml(webview: vscode.Webview): string {
     const nonce = getNonce();
     const htmlPath = path.join(this.context.extensionPath, 'media', 'snippetView.html');
@@ -372,6 +428,175 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
     return html;
   }
 
+}
+
+/**
+ * Helper class that implements SnippetExplorerListener interface
+ * and delegates to SnippetViewProvider
+ */
+class SnippetExplorerListenerHelper implements SnippetExplorerListener {
+  private provider: SnippetViewProvider;
+  private activeFile: string = '';
+
+  constructor(provider: SnippetViewProvider) {
+    this.provider = provider;
+  }
+
+  /**
+   * Set or reset the active file
+   */
+  public setActiveFile(fullPath: string): void {
+    this.activeFile = fullPath || '';
+  }
+
+  /**
+   * Get the active file path
+   */
+  public getActiveFile(): string {
+    return this.activeFile;
+  }
+
+  /**
+   * Check if a file is the active file
+   */
+  private isActiveFile(fullPath: string): boolean {
+    return this.activeFile !== '' && 
+           path.normalize(this.activeFile) === path.normalize(fullPath);
+  }
+
+  onNodeRenamed(oldNode: string, newNode: string, isFolder: boolean): void {
+    if (isFolder) {
+      // Folder renamed - check if active file is inside this folder
+      if (this.activeFile && this.activeFile.startsWith(oldNode + path.sep)) {
+        const relativePath = path.relative(oldNode, this.activeFile);
+        const newFile = path.join(newNode, relativePath);
+        this.activeFile = newFile;
+        this.provider.sendActiveFileUpdate('moved (folder renamed)', newFile);
+      }
+    } else {
+      // File renamed - check if it's the active file
+      if (this.isActiveFile(oldNode)) {
+        this.activeFile = newNode;
+        this.provider.sendActiveFileUpdate('renamed', newNode);
+      }
+    }
+  }
+
+  onNodeMoved(oldNode: string, newNode: string, isFolder: boolean): void {
+    if (isFolder) {
+      // Folder moved - check if active file is inside this folder
+      if (this.activeFile && this.activeFile.startsWith(oldNode + path.sep)) {
+        const relativePath = path.relative(oldNode, this.activeFile);
+        const newFile = path.join(newNode, relativePath);
+        this.activeFile = newFile;
+        this.provider.sendActiveFileUpdate('moved (folder moved)', newFile);
+      }
+    } else {
+      // File moved - check if it's the active file
+      if (this.isActiveFile(oldNode)) {
+        this.activeFile = newNode;
+        this.provider.sendActiveFileUpdate('moved', newNode);
+      }
+    }
+  }
+
+  onNodeRemoved(node: string, isFolder: boolean): void {
+    if (!this.activeFile) {
+      return;
+    }
+
+    const normalizedNode = path.normalize(node);
+    const normalizedActiveFile = path.normalize(this.activeFile);
+
+    if (isFolder) {
+      // Folder removed - check if it's a parent of the snippet path
+      const folderWithSep = normalizedNode + path.sep;
+      if (normalizedActiveFile.startsWith(folderWithSep)) {
+        const removedFolderName = path.basename(normalizedNode);
+        const activeFileName = path.basename(normalizedActiveFile);
+        
+        vscode.window.showWarningMessage(
+          `Snippet file "${activeFileName}" is no longer accessible: parent folder "${removedFolderName}" was removed.`
+        );
+        
+        this.activeFile = '';
+        this.provider.closeSnippet();
+      }
+    } else {
+      // File removed - check if it's the active file itself
+      if (normalizedNode === normalizedActiveFile) {
+        vscode.window.showWarningMessage(`Snippet file was removed: ${path.basename(node)}`);
+        this.activeFile = '';
+        this.provider.closeSnippet();
+      }
+    }
+  }
+
+  onNodeOverwrite(node: string, isFolder: boolean): void {
+    if (isFolder) {
+      // Folder overwritten - check if it's in the snippet path
+      if (!this.activeFile) {
+        return;
+      }
+
+      const normalizedFolder = path.normalize(node);
+      const normalizedActiveFile = path.normalize(this.activeFile);
+      const folderWithSep = normalizedFolder + path.sep;
+
+      if (normalizedActiveFile.startsWith(folderWithSep)) {
+        // The snippet file path contains the overwritten folder
+        // Check if the snippet file still exists after the overwrite
+        const activeFilePath = this.activeFile;
+        if (fs.existsSync(activeFilePath)) {
+          // File still exists, propose to reload
+          const fileName = path.basename(activeFilePath);
+          vscode.window.showWarningMessage(
+            `Folder containing snippet file "${fileName}" was overwritten. Do you want to reload the snippet?`,
+            { modal: true },
+            'Reload',
+            'Keep Current'
+          ).then(result => {
+            if (result === 'Reload') {
+              // Reload the snippet from file
+              const explorer = (this.provider as any).explorer;
+              const { error, snippets, head } = explorer.readSnippetFromFileItem(activeFilePath);
+              (this.provider as any).loadSnippetFromJSON(error, snippets, head);
+              vscode.window.showInformationMessage(`Snippet reloaded: ${fileName}`);
+            }
+          });
+        } else {
+          // File doesn't exist anymore, close snippet
+          const activeFileName = path.basename(normalizedActiveFile);
+          vscode.window.showWarningMessage(
+            `Snippet file "${activeFileName}" no longer exists after folder overwrite.`
+          );
+          this.activeFile = '';
+          this.provider.closeSnippet();
+        }
+      }
+    } else {
+      // File overwritten - check if it's the active snippet
+      if (this.isActiveFile(node)) {
+        const fileName = path.basename(node);
+        
+        // Show dialog to propose reload (fire and forget - don't block)
+        vscode.window.showWarningMessage(
+          `Snippet file "${fileName}" was overwritten. Do you want to reload it with the new data?`,
+          { modal: true },
+          'Reload',
+          'Keep Current'
+        ).then(result => {
+          if (result === 'Reload') {
+            // Reload the snippet from file
+            const explorer = (this.provider as any).explorer;
+            const { error, snippets, head } = explorer.readSnippetFromFileItem(node);
+            (this.provider as any).loadSnippetFromJSON(error, snippets, head);
+            vscode.window.showInformationMessage(`Snippet reloaded: ${fileName}`);
+          }
+        });
+      }
+    }
+  }
 }
 
 function getNonce() {

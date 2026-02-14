@@ -15,6 +15,9 @@ export function activate(context: vscode.ExtensionContext) {
   const workingSnippetProvider = new SnippetViewProvider(context, explorerProvider);
   vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
 
+  // Set listener for file operations in explorer provider
+  explorerProvider.setListener(workingSnippetProvider.getExplorerListener());
+
   // Webview for UML Diagrams
   //const umlProvider = new UMLViewProvider(context);
   // vscode.window.registerWebviewViewProvider('umlDiagramView', umlProvider);
