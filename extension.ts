@@ -50,8 +50,8 @@ export function activate(context: vscode.ExtensionContext) {
     //
     // REFRESH - refresh tree
     //
-    vscode.commands.registerCommand('snippetExplorer.refresh', () => {
-      explorerProvider.refresh();
+    vscode.commands.registerCommand('snippetExplorer.refresh', async () => {
+      await explorerProvider.refresh();
     })
   );
 
@@ -62,7 +62,8 @@ export function activate(context: vscode.ExtensionContext) {
     //
     vscode.commands.registerCommand('snippetExplorer.open', (item: FileTreeItem) => {
       if (!item.isFolder) {
-        const { error, snippets, head } = explorerProvider.readSnippetFromFileItem(item.fullPath);
+        // Use relativePath instead of fullPath
+        const { error, snippets, head } = explorerProvider.readSnippetFromFileItem(item.relativePath);
         // You can open a file, webview, or anything:
         vscode.commands.executeCommand(
           'workingSnippetView.openFileItem',

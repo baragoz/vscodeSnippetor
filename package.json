@@ -3,7 +3,7 @@
   "displayName": "SW Architecture Snippets",
   "publisher": "Snippetor",
   "description": "Extension to manage software architecture snippets with explorer view and snippet capture",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.80.0"
   },

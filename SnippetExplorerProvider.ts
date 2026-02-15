@@ -1,6 +1,5 @@
 // File: SnippetExplorerProvider.ts
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -10,11 +9,7 @@ import {
   MoveCopyCommandParams,
   RemoveCommandParams
 } from './SnippetExplorerCommandHandler';
-
-interface SnippetMapping {
-  folder: string;
-  mapping: string;
-}
+import { SnippetorFilesystemsWrapper, ConfigLoadResult } from './SnippetorFilesystemsWrapper';
 
 export interface SnippetExplorerListener {
   onNodeRenamed(oldNode: string, newNode: string, isFolder: boolean): void;
@@ -25,9 +20,13 @@ export interface SnippetExplorerListener {
 
 export class FileTreeItem extends vscode.TreeItem {
   isFolder: boolean;
+  public readonly relativePath: string; // Relative path (e.g., "Drafts/subfolder")
+  
   constructor(
-      public readonly fullPath: string, public readonly label: string,
-      public readonly collapsibleState: vscode.TreeItemCollapsibleState) {
+      public readonly fullPath: string, // Absolute path for resourceUri
+      public readonly label: string,
+      public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+      relativePath: string) {
     super(label, collapsibleState);
     this.resourceUri = vscode.Uri.file(fullPath);
     this.iconPath = collapsibleState === vscode.TreeItemCollapsibleState.None ?
@@ -35,6 +34,7 @@ export class FileTreeItem extends vscode.TreeItem {
         new vscode.ThemeIcon('folder');
     this.isFolder = collapsibleState !== vscode.TreeItemCollapsibleState.None;
     this.command = undefined;
+    this.relativePath = relativePath;
   }
 }
 
@@ -43,15 +43,13 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private context: vscode.ExtensionContext;
   private listener?: SnippetExplorerListener;
-
-  private rootPath: string = path.join(os.homedir(), '.vscode', 'archsnippets');
-  private configPath: string = path.join(this.rootPath, 'config.json');
   private readonly treeStateKey = 'snippetExplorer.treeState';
+  private fsWrapper: SnippetorFilesystemsWrapper;
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
+    this.fsWrapper = new SnippetorFilesystemsWrapper();
     this.initializeStorage();
-    this.ensureFolders();
   }
 
   public setListener(listener: SnippetExplorerListener): void {
@@ -72,25 +70,33 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async message => {
       switch (message.type) {
         case 'ready': {
-          const children = this.readDirectory(this.rootPath);
+          const children = this.getRootChildren();
           const treeState = this.getTreeState();
           this.sendCallback(true, '', message.callbackId, {children, treeState});
           break;
         }
         case 'expand': {
-          const children = this.readDirectory(message.path);
+          // message.path might be absolute or relative - convert to relative
+          const relativePath = this.convertToRelativePath(message.path);
+          const children = this.readDirectory(relativePath);
           this.sendCallback(true, '', message.callbackId, children);
           break;
         }
         case 'rename': {
-          const oldPath = message.oldPath;
-          const newPath = path.join(path.dirname(oldPath), message.newName);
+          // message.oldPath might be absolute or relative - convert to relative
+          const oldRelativePath = this.convertToRelativePath(message.oldPath);
+          const oldAbsolutePath = this.fsWrapper.toAbsolutePath(oldRelativePath);
+          const parentDir = this.fsWrapper.dirname(oldRelativePath);
+          const newRelativePath = parentDir ? `${parentDir}/${message.newName}` : message.newName;
+          
           try {
-            const isDir = fs.statSync(oldPath).isDirectory();
-            fs.renameSync(oldPath, newPath);
-            // Notify listener
+            const isDir = this.fsWrapper.stat(oldRelativePath).isDirectory();
+            this.fsWrapper.rename(oldRelativePath, newRelativePath);
+            
+            // Notify listener with absolute paths (for compatibility)
             if (this.listener) {
-              this.listener.onNodeRenamed(oldPath, newPath, isDir);
+              const newAbsolutePath = this.fsWrapper.toAbsolutePath(newRelativePath);
+              this.listener.onNodeRenamed(oldAbsolutePath, newAbsolutePath, isDir);
             }
             this.sendCallback(true, '', message.callbackId, {});
           } catch (err: any) {
@@ -101,18 +107,18 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'move': {
+          // message.sourcePath and message.targetPath might be absolute or relative - convert to relative
           const handler = new MoveCommandHandler(
-            this.rootPath,
+            this.fsWrapper,
             this.listener,
             this.sendCallback.bind(this)
           );
           const params: MoveCopyCommandParams = {
-            sourcePath: message.sourcePath,
-            targetPath: message.targetPath,
+            sourcePath: this.convertToRelativePath(message.sourcePath),
+            targetPath: this.convertToRelativePath(message.targetPath),
             isFolder: message.isFolder,
             overwrite: message.overwrite || false,
             callbackId: message.callbackId,
-            rootPath: this.rootPath,
             listener: this.listener,
             sendCallback: this.sendCallback.bind(this)
           };
@@ -122,18 +128,18 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'copy': {
+          // message.sourcePath and message.targetPath might be absolute or relative - convert to relative
           const handler = new CopyCommandHandler(
-            this.rootPath,
+            this.fsWrapper,
             this.listener,
             this.sendCallback.bind(this)
           );
           const params: MoveCopyCommandParams = {
-            sourcePath: message.sourcePath,
-            targetPath: message.targetPath,
+            sourcePath: this.convertToRelativePath(message.sourcePath),
+            targetPath: this.convertToRelativePath(message.targetPath),
             isFolder: message.isFolder,
             overwrite: message.overwrite || false,
             callbackId: message.callbackId,
-            rootPath: this.rootPath,
             listener: this.listener,
             sendCallback: this.sendCallback.bind(this)
           };
@@ -143,22 +149,23 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'checkDestination': {
+          // message.destinationPath might be absolute or relative - convert to relative
           this.checkDestination(
-              message.destinationPath, message.callbackId);
+              this.convertToRelativePath(message.destinationPath), message.callbackId);
           break;
         }
         case 'remove': {
+          // message.fullPath might be absolute or relative - convert to relative
           const handler = new RemoveCommandHandler(
-            this.rootPath,
+            this.fsWrapper,
             this.listener,
             this.sendCallback.bind(this)
           );
           const params: RemoveCommandParams = {
-            fullPath: message.fullPath,
+            fullPath: this.convertToRelativePath(message.fullPath),
             name: message.name,
             isFolder: message.isFolder,
             callbackId: message.callbackId,
-            rootPath: this.rootPath,
             listener: this.listener,
             sendCallback: this.sendCallback.bind(this)
           };
@@ -176,15 +183,19 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'openFile': {
+          // message.path might be absolute or relative - convert to relative
           const {error, snippets, head} =
-              this.readSnippetFromFileItem(message.path);
+              this.readSnippetFromFileItem(this.convertToRelativePath(message.path));
           // You can open a file, webview, or anything:
           vscode.commands.executeCommand(
               'workingSnippetView.openFileItem', {error, snippets, head});
           break;
         }
         case 'openText': {
-          const uri = vscode.Uri.file(message.path);
+          // message.path might be absolute or relative - convert to relative then to absolute for URI
+          const relativePath = this.convertToRelativePath(message.path);
+          const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
+          const uri = vscode.Uri.file(absolutePath);
           vscode.commands.executeCommand('vscode.open', uri);
           break;
         }
@@ -193,7 +204,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'openConfig': {
-          const uri = vscode.Uri.file(this.configPath);
+          const uri = vscode.Uri.file(this.fsWrapper.getConfigAbsolutePath());
           vscode.commands.executeCommand('vscode.open', uri);
           break;
         }
@@ -215,10 +226,35 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private checkDestination(destinationPath: string, callbackId: string) {
+  /**
+   * Convert path to relative path (handles both absolute and relative inputs)
+   */
+  private convertToRelativePath(pathInput: string): string {
+    if (!pathInput) {
+      return pathInput;
+    }
+    // If it's already a relative path (doesn't start with / and isn't absolute), return as is
+    if (!path.isAbsolute(pathInput)) {
+      // Check if it's a valid relative path format (e.g., "Drafts/subfolder")
+      const normalized = pathInput.replace(/^\/+|\/+$/g, '');
+      if (normalized && normalized.split('/').length > 0) {
+        return normalized;
+      }
+    }
+    // Try to convert absolute path to relative
     try {
-      if (fs.existsSync(destinationPath)) {
-        const stats = fs.statSync(destinationPath);
+      return this.fsWrapper.toRelativePath(pathInput);
+    } catch {
+      // If conversion fails, return as is (might be invalid path)
+      return pathInput;
+    }
+  }
+
+  private checkDestination(destinationPath: string, callbackId: string) {
+    // destinationPath is relative path
+    try {
+      if (this.fsWrapper.exists(destinationPath)) {
+        const stats = this.fsWrapper.stat(destinationPath);
         this.sendCallback(true, '', callbackId, {
           exists: true,
           isFolder: stats.isDirectory()
@@ -236,42 +272,39 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
 
 
 
-  private readDirectory(dirPath: string):
+  private getRootChildren(): {name: string; fullPath: string; isFolder: boolean}[] {
+    // Return root folders - wrapper returns relative paths, convert to absolute for webview
+    const children = this.fsWrapper.getRootChildren();
+    return children.map(child => ({
+      ...child,
+      fullPath: this.fsWrapper.toAbsolutePath(child.fullPath) // Convert to absolute for webview
+    }));
+  }
+
+  private readDirectory(relativePath: string):
       {name: string; fullPath: string; isFolder: boolean}[] {
-    if (!fs.existsSync(dirPath)) return [];
-    const entries = fs.readdirSync(dirPath);
-    return entries
-        .filter(name => {
-          const fullPath = path.join(dirPath, name);
-          const fileName = path.basename(fullPath);
-          return fileName !== 'config.json';
-        })
-        .map(name => {
-          const fullPath = path.join(dirPath, name);
-          const isFolder = fs.statSync(fullPath).isDirectory();
-          return {name, fullPath, isFolder};
-        })
-        .sort((a, b) => {
-          // Folders first, then files
-          if (a.isFolder && !b.isFolder) return -1;
-          if (!a.isFolder && b.isFolder) return 1;
-          // Within same type, sort alphabetically by name
-          return a.name.localeCompare(b.name);
-        });
+    // relativePath is relative path (e.g., "Drafts" or "Drafts/subfolder")
+    const children = this.fsWrapper.readDirectory(relativePath);
+    // Convert relative paths to absolute for webview
+    return children.map(child => ({
+      ...child,
+      fullPath: this.fsWrapper.toAbsolutePath(child.fullPath) // Convert to absolute for webview
+    }));
   }
 
-  private ensureFolders() {
-    const defaults = ['Drafts', 'LocalSpace'];
-    for (const folder of defaults) {
-      const folderPath = path.join(this.rootPath, folder);
-      if (!fs.existsSync(folderPath))
-        fs.mkdirSync(folderPath, {recursive: true});
+
+  async refresh(): Promise<void> {
+    // Reload config on refresh
+    const result = this.fsWrapper.reloadConfig();
+    
+    if (!result.isValid && result.error) {
+      const defaultFolders = this.fsWrapper.getFolders();
+      const defaultFoldersExist = defaultFolders.length > 0;
+      await this.showInvalidConfigDialog(result.error, defaultFoldersExist);
     }
-  }
 
-  refresh(): void {
     if (this._view) {
-      const children = this.readDirectory(this.rootPath);
+      const children = this.getRootChildren();
       const treeState = this.getTreeState();
       this._view.webview.postMessage({
         type: 'refresh',
@@ -280,14 +313,14 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private notifyNewSnippetCreated(fullPath: string, parentDir: string): void {
+  private notifyNewSnippetCreated(relativePath: string, parentDir: string): void {
     if (this._view) {
-      const fileName = path.basename(fullPath);
+      const fileName = this.fsWrapper.basename(relativePath);
       this._view.webview.postMessage({
         type: 'addNode',
         data: {
           name: fileName,
-          fullPath: fullPath,
+          fullPath: relativePath, // Send relative path
           isFolder: false,
           parentPath: parentDir
         }
@@ -304,29 +337,41 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   }
 
   public openConfig(): void {
-    const uri = vscode.Uri.file(this.configPath);
+    const uri = vscode.Uri.file(this.fsWrapper.getConfigAbsolutePath());
     vscode.commands.executeCommand('vscode.open', uri);
   }
 
-  private initializeStorage() {
-    if (!fs.existsSync(this.rootPath)) {
-      fs.mkdirSync(this.rootPath, {recursive: true});
-    }
-
-    const defaultFolders: SnippetMapping[] = [
-      {folder: 'Drafts', mapping: path.join(this.rootPath, 'Drafts')},
-      {folder: 'LocalSpace', mapping: path.join(this.rootPath, 'LocalSpace')}
-    ];
-
-    for (const entry of defaultFolders) {
-      if (!fs.existsSync(entry.mapping)) {
-        fs.mkdirSync(entry.mapping, {recursive: true});
+  private async showInvalidConfigDialog(error: string, defaultFoldersExist: boolean): Promise<void> {
+    const message = `Invalid config.json: ${error}`;
+    const options: string[] = ['Open Config'];
+    
+    if (defaultFoldersExist) {
+      const result = await vscode.window.showWarningMessage(
+        `${message}\n\nDefault folders will be used.`,
+        ...options
+      );
+      if (result === 'Open Config') {
+        this.openConfig();
+      }
+    } else {
+      const result = await vscode.window.showErrorMessage(
+        `${message}\n\nNo default folders found. Please fix the config.`,
+        ...options
+      );
+      if (result === 'Open Config') {
+        this.openConfig();
       }
     }
+  }
 
-    if (!fs.existsSync(this.configPath)) {
-      fs.writeFileSync(
-          this.configPath, JSON.stringify(defaultFolders, null, 2));
+  private initializeStorage() {
+    const result = this.fsWrapper.loadFoldersFromConfig();
+    
+    if (!result.isValid && result.error) {
+      const defaultFolders = this.fsWrapper.getFolders();
+      const defaultFoldersExist = defaultFolders.length > 0;
+      // Fire and forget - can't await in constructor
+      this.showInvalidConfigDialog(result.error, defaultFoldersExist).catch(() => {});
     }
   }
 
@@ -336,12 +381,12 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Combine with base path
-    const fullPath = path.join(this.rootPath, payload.path);
-    const dir = path.dirname(fullPath);
+    // payload.path is relative path (e.g., "Drafts/subfolder/file.snippet")
+    const relativePath = payload.path;
+    const parentDir = this.fsWrapper.dirname(relativePath);
 
-    if (!fs.existsSync(dir)) {
-      vscode.window.showErrorMessage(`Directory does not exist: ${dir}`);
+    if (!this.fsWrapper.exists(parentDir)) {
+      vscode.window.showErrorMessage(`Directory does not exist: ${parentDir}`);
       return;
     }
 
@@ -349,16 +394,16 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     const {path: _ignored, ...content} = payload;
     const jsonData = JSON.stringify(content, null, 2);
 
-    fs.writeFile(fullPath, jsonData, {encoding: 'utf-8'}, (err) => {
-      if (err) {
-        vscode.window.showErrorMessage(
-            `Failed to save snippet: ${err.message}`);
-      } else {
-        vscode.window.showInformationMessage(`Snippet saved to: ${fullPath}`);
-        // Notify explorer view to add the new snippet if parent folder is expanded
-        this.notifyNewSnippetCreated(fullPath, dir);
-      }
-    });
+    try {
+      this.fsWrapper.writeFile(relativePath, jsonData, 'utf-8');
+      const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
+      vscode.window.showInformationMessage(`Snippet saved to: ${absolutePath}`);
+      // Notify explorer view to add the new snippet if parent folder is expanded
+      this.notifyNewSnippetCreated(relativePath, parentDir);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(
+          `Failed to save snippet: ${err.message}`);
+    }
   }
 
 
@@ -367,40 +412,16 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     error: string,
     autocomplete: {name: string; isDirectory: boolean}[]
   } {
-    const targetPath = path.join(this.rootPath, relativePath);
-
-    if (!fs.existsSync(targetPath)) {
-      return {
-        error: 'Path does not exist.',
-        path: relativePath,
-        autocomplete: []
-      };
-    }
-
-    try {
-      const entries = fs.readdirSync(targetPath, {withFileTypes: true});
-      return {
-        error: '',
-        path: relativePath,
-        autocomplete: entries.map(
-            entry => ({name: entry.name, isDirectory: entry.isDirectory()}))
-      };
-    } catch (err) {
-      return {
-        error: `Failed to read directory for autocompletion: ${err}`,
-        path: relativePath,
-        autocomplete: []
-      };
-    }
+    // Delegate to wrapper
+    return this.fsWrapper.getAutoCompletion(relativePath);
   }
 
-  public readSnippetFromFileItem(fullPath: string): {
+  public readSnippetFromFileItem(relativePath: string): {
     error: string; snippets: any[];
     head: {title: string; description: string; path: string};
   } {
-    const relativePath = '/' + path.relative(this.rootPath, fullPath);
-
-    if (!fs.existsSync(fullPath)) {
+    // relativePath is relative path (e.g., "Drafts/file.snippet")
+    if (!this.fsWrapper.exists(relativePath)) {
       vscode.window.showErrorMessage('Snippet file not found.');
       return {
         error: 'File not found.',
@@ -410,7 +431,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
 
     try {
-      const content = fs.readFileSync(fullPath, 'utf-8');
+      const content = this.fsWrapper.readFile(relativePath, 'utf-8');
       const json = JSON.parse(content);
 
       const title = typeof json.title === 'string' ? json.title : '';
@@ -443,13 +464,18 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     const newName = await vscode.window.showInputBox(
         {prompt: 'Rename file/folder', value: item.label});
     if (newName && newName !== item.label) {
-      const newPath = path.join(path.dirname(item.fullPath), newName);
+      // item.relativePath is the relative path
+      const parentDir = this.fsWrapper.dirname(item.relativePath);
+      const newRelativePath = parentDir ? `${parentDir}/${newName}` : newName;
+      
       try {
-        fs.renameSync(item.fullPath, newPath);
+        this.fsWrapper.rename(item.relativePath, newRelativePath);
         
-        // Notify listener about the rename
+        // Notify listener about the rename (with absolute paths for compatibility)
         if (this.listener) {
-          this.listener.onNodeRenamed(item.fullPath, newPath, item.isFolder);
+          const oldAbsolute = this.fsWrapper.toAbsolutePath(item.relativePath);
+          const newAbsolute = this.fsWrapper.toAbsolutePath(newRelativePath);
+          this.listener.onNodeRenamed(oldAbsolute, newAbsolute, item.isFolder);
         }
         
         this.refresh();
@@ -460,17 +486,17 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   }
 
   public async removeItem(item: FileTreeItem) {
+    // item.relativePath is the relative path
     const handler = new RemoveCommandHandler(
-      this.rootPath,
+      this.fsWrapper,
       this.listener,
       this.sendCallback.bind(this)
     );
     const params: RemoveCommandParams = {
-      fullPath: item.fullPath,
+      fullPath: item.relativePath,
       name: item.label,
       isFolder: item.isFolder,
       callbackId: '', // Not used for this public method
-      rootPath: this.rootPath,
       listener: this.listener,
       sendCallback: this.sendCallback.bind(this)
     };
@@ -492,19 +518,17 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   }
 
   private async createSnippet(newPath: string, callbackId: string) {
+    // newPath is relative path
     if (!newPath) {
       this.sendCallback(false, `Invalid file path: ${newPath}`, callbackId);
       return;
     }
     // Add snippet extension if needed
-    const extra = newPath.endsWith('.snippet') ? newPath : newPath + '.snippet';
-    // Add root prefix if needed
-    const filePath = extra.startsWith(this.rootPath) ?
-        extra :
-        path.join(this.rootPath, extra);
+    const relativePath = newPath.endsWith('.snippet') ? newPath : newPath + '.snippet';
+    
     try {
-      fs.writeFileSync(
-          filePath, JSON.stringify({title: '', description: '', snippets: []}));
+      this.fsWrapper.writeFile(
+          relativePath, JSON.stringify({title: '', description: '', snippets: []}), 'utf-8');
       this.sendCallback(true, '', callbackId);
     } catch (err: any) {
       vscode.window.showErrorMessage(
@@ -514,22 +538,21 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async createFolder(folder: string, callbackId: string) {
-    if (!folder) {
-      this.sendCallback(false, `Invalid folder path: ${folder}`, callbackId);
+  private async createFolder(relativePath: string, callbackId: string) {
+    // relativePath is relative path
+    if (!relativePath) {
+      this.sendCallback(false, `Invalid folder path: ${relativePath}`, callbackId);
       return;
     }
-
-    const folderPath = folder.startsWith(this.rootPath) ?
-        folder :
-        path.join(this.rootPath, folder);
+    
     try {
-      if (fs.existsSync(folderPath)) {
+      if (this.fsWrapper.exists(relativePath)) {
+        const folderName = this.fsWrapper.basename(relativePath);
         this.sendCallback(
-            false, `Folder already exists: ${path.basename(folderPath)}`, callbackId);
+            false, `Folder already exists: ${folderName}`, callbackId);
         return;
       }
-      fs.mkdirSync(folderPath, {recursive: false});
+      this.fsWrapper.mkdir(relativePath, false);
       this.sendCallback(true, '', callbackId);
     } catch (err: any) {
       vscode.window.showErrorMessage(`Failed to create folder: ${err.message}`);

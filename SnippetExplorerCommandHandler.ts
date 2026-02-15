@@ -1,8 +1,8 @@
 // File: SnippetExplorerCommandHandler.ts
-import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { SnippetExplorerListener } from './SnippetExplorerProvider';
+import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 
 /**
  * Common interface for command handlers
@@ -21,7 +21,6 @@ export interface ICommandHandler {
  */
 export interface BaseCommandParams {
   callbackId: string;
-  rootPath: string;
   listener?: SnippetExplorerListener;
   sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void;
 }
@@ -54,16 +53,16 @@ export type CommandParams = MoveCopyCommandParams | RemoveCommandParams;
  * Base class for command handlers with common functionality
  */
 export abstract class BaseCommandHandler implements ICommandHandler {
-  protected rootPath: string;
+  protected fsWrapper: SnippetorFilesystemsWrapper;
   protected listener?: SnippetExplorerListener;
   protected sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void;
 
   constructor(
-    rootPath: string,
+    fsWrapper: SnippetorFilesystemsWrapper,
     listener: SnippetExplorerListener | undefined,
     sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void
   ) {
-    this.rootPath = rootPath;
+    this.fsWrapper = fsWrapper;
     this.listener = listener;
     this.sendCallback = sendCallback;
   }
@@ -71,14 +70,8 @@ export abstract class BaseCommandHandler implements ICommandHandler {
   abstract execute(params: CommandParams): Promise<void>;
 
   /**
-   * Sanitizes and normalizes a file path
-   */
-  protected sanitizePath(filePath: string): string {
-    return path.normalize(filePath);
-  }
-
-  /**
    * Checks that source is not a top-level folder and destination is not root path
+   * source and destinationFolder are relative paths
    */
   protected checkSourceAndDestinationPaths(
     source: string,
@@ -86,20 +79,19 @@ export abstract class BaseCommandHandler implements ICommandHandler {
     baseName: string,
     isFolder: boolean
   ): string | null {
-    const relativePath = path.relative(this.rootPath, source).split(path.sep);
-    const isTopFolder = relativePath.length < 2;
-
-    if (isTopFolder) {
+    // Check if source is a root folder (top-level) - relative path with only folder name
+    if (this.fsWrapper.isRootFolder(source)) {
       return `Cannot move top-level folder: ${baseName}`;
     }
 
-    if (destinationFolder === this.rootPath) {
+    // Check if destination is a root folder
+    if (this.fsWrapper.isRootFolder(destinationFolder)) {
       return `Failed to drop to the root folder.`;
     }
 
     if (!isFolder) {
-      const baseDir = path.dirname(source);
-      if (baseDir === this.rootPath) {
+      const baseDir = this.fsWrapper.dirname(source);
+      if (this.fsWrapper.isRootFolder(baseDir)) {
         return `Failed to drop file to the root folder.`;
       }
     }
@@ -109,6 +101,7 @@ export abstract class BaseCommandHandler implements ICommandHandler {
 
   /**
    * Checks that source folder != destination folder or source file folder != dest folder
+   * source and destination are relative paths
    */
   protected checkSourceDestinationNotEqual(
     source: string,
@@ -116,11 +109,11 @@ export abstract class BaseCommandHandler implements ICommandHandler {
     isFolder: boolean
   ): string | null {
     if (isFolder) {
-      if (source === destination || destination.startsWith(source + path.sep)) {
+      if (source === destination || destination.startsWith(source + '/')) {
         return `Failed to move folder.`;
       }
     } else {
-      const baseDir = path.dirname(source);
+      const baseDir = this.fsWrapper.dirname(source);
       if (baseDir === destination) {
         return `There is no file sort operation support.`;
       }
@@ -131,13 +124,14 @@ export abstract class BaseCommandHandler implements ICommandHandler {
 
   /**
    * Checks that destination exists and is a directory
+   * destinationFolder is relative path
    */
   protected checkDestinationExistsAndIsDir(destinationFolder: string): string | null {
-    if (!fs.existsSync(destinationFolder)) {
+    if (!this.fsWrapper.exists(destinationFolder)) {
       return `Destination does not exist.`;
     }
 
-    const destStats = fs.statSync(destinationFolder);
+    const destStats = this.fsWrapper.stat(destinationFolder);
     if (!destStats.isDirectory()) {
       return `Destination is not a directory.`;
     }
@@ -155,10 +149,11 @@ export class MoveCommandHandler extends BaseCommandHandler {
       throw new Error('Invalid parameters for MoveCommandHandler');
     }
 
-    const source = this.sanitizePath(params.sourcePath);
-    const destinationFolder = this.sanitizePath(params.targetPath);
-    const baseName = path.basename(source);
-    const destination = path.join(destinationFolder, baseName);
+    // sourcePath and targetPath are relative paths
+    const source = params.sourcePath;
+    const destinationFolder = params.targetPath;
+    const baseName = this.fsWrapper.basename(source);
+    const destination = this.fsWrapper.join(destinationFolder, baseName);
     const overwrite = params.overwrite || false;
 
     // Check 1: Source not top-level, destination not root
@@ -209,16 +204,12 @@ export class MoveCommandHandler extends BaseCommandHandler {
     }
 
     // Handle overwrite removal if needed
-    if (fs.existsSync(destination) && overwrite) {
-      const destStats = fs.statSync(destination);
+    if (this.fsWrapper.exists(destination) && overwrite) {
+      const destStats = this.fsWrapper.stat(destination);
       const destIsFolder = destStats.isDirectory();
 
       try {
-        if (destIsFolder) {
-          fs.rmSync(destination, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(destination);
-        }
+        this.fsWrapper.remove(destination, true);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
         this.sendCallback(false, `Failed to remove existing item: ${err.message}`, params.callbackId);
@@ -228,21 +219,24 @@ export class MoveCommandHandler extends BaseCommandHandler {
 
     // Perform the move
     try {
-      fs.renameSync(source, destination);
+      this.fsWrapper.rename(source, destination);
+      const destFolderName = this.fsWrapper.basename(destinationFolder);
       vscode.window.showInformationMessage(
-        `Moved "${baseName}" to "${path.basename(destinationFolder)}"`
+        `Moved "${baseName}" to "${destFolderName}"`
       );
 
-      // Notify listener about the move
+      // Notify listener about the move (with absolute paths for compatibility)
       if (this.listener) {
+        const sourceAbsolute = this.fsWrapper.toAbsolutePath(source);
+        const destAbsolute = this.fsWrapper.toAbsolutePath(destination);
         if (overwrite) {
-          if (fs.existsSync(destination)) {
-            this.listener.onNodeOverwrite(destination, params.isFolder);
+          if (this.fsWrapper.exists(destination)) {
+            this.listener.onNodeOverwrite(destAbsolute, params.isFolder);
           } else {
-            this.listener.onNodeRemoved(destination, params.isFolder);
+            this.listener.onNodeRemoved(destAbsolute, params.isFolder);
           }
         } else {
-          this.listener.onNodeMoved(source, destination, params.isFolder);
+          this.listener.onNodeMoved(sourceAbsolute, destAbsolute, params.isFolder);
         }
       }
 
@@ -258,11 +252,12 @@ export class MoveCommandHandler extends BaseCommandHandler {
     baseName: string,
     overwrite: boolean
   ): string | null {
-    if (!fs.existsSync(destination)) {
+    // destination is relative path
+    if (!this.fsWrapper.exists(destination)) {
       return null;
     }
 
-    const destStats = fs.statSync(destination);
+    const destStats = this.fsWrapper.stat(destination);
     const destIsFolder = destStats.isDirectory();
 
     if (destIsFolder) {
@@ -281,11 +276,12 @@ export class MoveCommandHandler extends BaseCommandHandler {
     baseName: string,
     overwrite: boolean
   ): string | null {
-    if (!fs.existsSync(destination)) {
+    // destination is relative path
+    if (!this.fsWrapper.exists(destination)) {
       return null;
     }
 
-    const destStats = fs.statSync(destination);
+    const destStats = this.fsWrapper.stat(destination);
     const destIsFolder = destStats.isDirectory();
 
     if (!destIsFolder) {
@@ -313,22 +309,22 @@ export class CopyCommandHandler extends BaseCommandHandler {
       throw new Error('Invalid parameters for CopyCommandHandler');
     }
 
-    const source = this.sanitizePath(params.sourcePath);
-    const destinationFolder = this.sanitizePath(params.targetPath);
-    const baseName = path.basename(source);
-    const destination = path.join(destinationFolder, baseName);
+    // sourcePath and targetPath are relative paths
+    const source = params.sourcePath;
+    const destinationFolder = params.targetPath;
+    const baseName = this.fsWrapper.basename(source);
+    const destination = this.fsWrapper.join(destinationFolder, baseName);
     const overwrite = params.overwrite || false;
-    const relativePath = path.relative(this.rootPath, source).split(path.sep);
-    const isTopFolder = relativePath.length < 2;
 
-    if (isTopFolder) {
+    // Check if source is a root folder (top-level)
+    if (this.fsWrapper.isRootFolder(source)) {
       vscode.window.showWarningMessage(`Cannot copy top-level folder: ${baseName}`);
       this.sendCallback(false, `Cannot copy top-level folder: ${baseName}`, params.callbackId);
       return;
     }
 
     if (params.isFolder) {
-      if (source === destination || destination.startsWith(source + path.sep)) {
+      if (source === destination || destination.startsWith(source + '/')) {
         vscode.window.showWarningMessage(`Failed to copy folder.`);
         this.sendCallback(false, `Failed to copy folder.`, params.callbackId);
         return;
@@ -336,8 +332,8 @@ export class CopyCommandHandler extends BaseCommandHandler {
     }
 
     // Check if destination exists
-    if (fs.existsSync(destination)) {
-      const destStats = fs.statSync(destination);
+    if (this.fsWrapper.exists(destination)) {
+      const destStats = this.fsWrapper.stat(destination);
       const destIsFolder = destStats.isDirectory();
 
       if (destIsFolder !== params.isFolder) {
@@ -362,11 +358,7 @@ export class CopyCommandHandler extends BaseCommandHandler {
 
       // Remove existing item before copying
       try {
-        if (destIsFolder) {
-          fs.rmSync(destination, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(destination);
-        }
+        this.fsWrapper.remove(destination, true);
       } catch (err: any) {
         vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
         this.sendCallback(false, `Failed to remove existing item: ${err.message}`, params.callbackId);
@@ -375,46 +367,31 @@ export class CopyCommandHandler extends BaseCommandHandler {
     }
 
     try {
+      this.fsWrapper.copy(source, destination);
+      const destFolderName = this.fsWrapper.basename(destinationFolder);
+      
       if (params.isFolder) {
-        this.copyFolderRecursiveSync(source, destination);
         vscode.window.showInformationMessage(
-          `Copied folder "${baseName}" to "${path.basename(destinationFolder)}"`
+          `Copied folder "${baseName}" to "${destFolderName}"`
         );
-        if (overwrite && fs.existsSync(destination) && this.listener) {
-          this.listener.onNodeOverwrite(destination, params.isFolder);
-        }
       } else {
-        if (fs.existsSync(destination) && this.listener) {
-          this.listener.onNodeOverwrite(destination, false);
-        }
-        fs.copyFileSync(source, destination);
         vscode.window.showInformationMessage(
-          `Copied file "${baseName}" to "${path.basename(destinationFolder)}"`
+          `Copied file "${baseName}" to "${destFolderName}"`
         );
       }
+      
+      // Notify listener (with absolute paths for compatibility)
+      if (this.listener) {
+        const destAbsolute = this.fsWrapper.toAbsolutePath(destination);
+        if (overwrite && this.fsWrapper.exists(destination)) {
+          this.listener.onNodeOverwrite(destAbsolute, params.isFolder);
+        }
+      }
+      
       this.sendCallback(true, '', params.callbackId);
     } catch (err: any) {
       vscode.window.showErrorMessage(`Copy failed: ${err.message}`);
       this.sendCallback(false, `Copy failed: ${err.message}`, params.callbackId);
-    }
-  }
-
-  private copyFolderRecursiveSync(src: string, dest: string): void {
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(dest, { recursive: true });
-    }
-
-    const entries = fs.readdirSync(src, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name);
-      const destPath = path.join(dest, entry.name);
-
-      if (entry.isDirectory()) {
-        this.copyFolderRecursiveSync(srcPath, destPath);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-      }
     }
   }
 
@@ -442,16 +419,13 @@ export class RemoveCommandHandler extends BaseCommandHandler {
       confirmed.then((data) => {
         if (data === 'Yes') {
           try {
-            // Notify listener about the removal
+            // Notify listener about the removal (with absolute path for compatibility)
             if (this.listener) {
-              this.listener.onNodeRemoved(params.fullPath, params.isFolder);
+              const absolutePath = this.fsWrapper.toAbsolutePath(params.fullPath);
+              this.listener.onNodeRemoved(absolutePath, params.isFolder);
             }
 
-            if (params.isFolder) {
-              fs.rmSync(params.fullPath, { recursive: true, force: true });
-            } else {
-              fs.unlinkSync(params.fullPath);
-            }
+            this.fsWrapper.remove(params.fullPath, true);
 
             this.sendCallback(true, '', params.callbackId, { path: params.fullPath });
             resolve();
