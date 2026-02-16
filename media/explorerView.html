@@ -118,6 +118,62 @@
             border-top: 1px solid var(--vscode-editorWidget-border);
             margin: 4px 0;
         }
+
+        /* Dialog styles */
+        .sne-dialog {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--vscode-editorWidget-background);
+            color: var(--vscode-editorWidget-foreground);
+            border: 1px solid var(--vscode-editorWidget-border);
+            padding: 16px;
+            z-index: 10000;
+            min-width: 280px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            border-radius: 6px;
+        }
+
+        .sne-dialog-message {
+            margin-bottom: 12px;
+        }
+
+        .sne-dialog-message-large {
+            margin-bottom: 16px;
+        }
+
+        .sne-dialog-button {
+            padding: 4px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .sne-dialog-button-primary {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .sne-dialog-button-primary:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+
+        .sne-dialog-button-secondary {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            margin-right: 8px;
+        }
+
+        .sne-dialog-button-secondary:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .sne-dialog-button-container {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
     </style>
 </head>
 
@@ -127,23 +183,548 @@
     <div id="sne-context-menu" class="sne-context" style="display: none;"></div>
 
     <script>
-        const vscode = acquireVsCodeApi();
+        // ============================================================================
+        // MessageManager - Centralizes all vscode.postMessage and message listening
+        // ============================================================================
+        class MessageManager {
+            constructor() {
+                this.vscode = acquireVsCodeApi();
+                this.callbackMap = new Map();
+                this.callbackCounter = 1;
+                this.messageHandlers = new Map();
+            }
 
+            // Send a command and wait for callback
+            sendCommand(type, data = {}) {
+                return new Promise((resolve, reject) => {
+                    const callbackId = `cb_${Date.now()}_${this.callbackCounter++}`;
+                    this.callbackMap.set(callbackId, { resolve, reject });
+
+                    this.vscode.postMessage({
+                        type: type,
+                        ...data,
+                        callbackId
+                    });
+                });
+            }
+
+            // Send a message without waiting for response
+            sendMessage(type, data = {}) {
+                this.vscode.postMessage({ type, ...data });
+            }
+
+            // Register handler for incoming messages
+            onMessage(type, handler) {
+                if (!this.messageHandlers.has(type)) {
+                    this.messageHandlers.set(type, []);
+                }
+                this.messageHandlers.get(type).push(handler);
+            }
+
+            // Initialize message listener (called once)
+            initialize() {
+                window.addEventListener('message', event => {
+                    const message = event.data;
+
+                    // Handle callbacks
+                    if (message.type === 'onCallback') {
+                        const callback = this.callbackMap.get(message.callbackId);
+                        if (callback) {
+                            this.callbackMap.delete(message.callbackId);
+                            if (message.success) {
+                                callback.resolve(message.data);
+                            } else {
+                                callback.reject(new Error(message.error || 'Unknown error'));
+                            }
+                        }
+                        return;
+                    }
+
+                    // Handle other message types
+                    const handlers = this.messageHandlers.get(message.type);
+                    if (handlers) {
+                        handlers.forEach(handler => handler(message));
+                    }
+                });
+            }
+        }
+
+        // ============================================================================
+        // DialogManager - Handles all dialog showing (error, confirm, etc.)
+        // ============================================================================
+        class DialogManager {
+            showErrorDialog(errorMessage) {
+                const existing = document.getElementById('sne-error-dialog');
+                if (existing) existing.remove();
+
+                const dialog = document.createElement('div');
+                dialog.id = 'sne-error-dialog';
+                dialog.className = 'sne-dialog';
+
+                const message = document.createElement('div');
+                message.className = 'sne-dialog-message';
+                message.textContent = errorMessage;
+                dialog.appendChild(message);
+
+                const button = document.createElement('button');
+                button.className = 'sne-dialog-button sne-dialog-button-primary';
+                button.textContent = 'OK';
+                button.onclick = () => {
+                    dialog.remove();
+                };
+
+                dialog.appendChild(button);
+                document.body.appendChild(dialog);
+            }
+
+            showConfirmDialog(message, onConfirm, onCancel) {
+                const existing = document.getElementById('sne-confirm-dialog');
+                if (existing) existing.remove();
+
+                const dialog = document.createElement('div');
+                dialog.id = 'sne-confirm-dialog';
+                dialog.className = 'sne-dialog';
+
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'sne-dialog-message-large';
+                messageDiv.textContent = message;
+                dialog.appendChild(messageDiv);
+
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'sne-dialog-button-container';
+
+                const cancelButton = document.createElement('button');
+                cancelButton.className = 'sne-dialog-button sne-dialog-button-secondary';
+                cancelButton.textContent = 'Cancel';
+                cancelButton.onclick = () => {
+                    dialog.remove();
+                    if (onCancel) onCancel();
+                };
+
+                const confirmButton = document.createElement('button');
+                confirmButton.className = 'sne-dialog-button sne-dialog-button-primary';
+                confirmButton.textContent = 'Confirm';
+                confirmButton.onclick = () => {
+                    dialog.remove();
+                    if (onConfirm) onConfirm();
+                };
+
+                buttonContainer.appendChild(cancelButton);
+                buttonContainer.appendChild(confirmButton);
+                dialog.appendChild(buttonContainer);
+                document.body.appendChild(dialog);
+            }
+        }
+
+        // ============================================================================
+        // TreeCommandHandler - Handles all tree-related commands
+        // ============================================================================
+        class TreeCommandHandler {
+            constructor(messageManager, treeView) {
+                this.messageManager = messageManager;
+                this.treeView = treeView;
+                this.dialogManager = new DialogManager();
+            }
+
+            async expand(path) {
+                return await this.messageManager.sendCommand('expand', { path });
+            }
+
+            async rename(oldPath, newName) {
+                return await this.messageManager.sendCommand('rename', {
+                    oldPath,
+                    newName
+                });
+            }
+
+            async createFolder(path) {
+                return await this.messageManager.sendCommand('createFolder', { path });
+            }
+
+            async createSnippet(path) {
+                return await this.messageManager.sendCommand('createSnippet', { path });
+            }
+
+            async remove(fullPath, name, isFolder) {
+                return await this.messageManager.sendCommand('remove', {
+                    fullPath,
+                    name,
+                    isFolder
+                });
+            }
+
+            async checkDestination(destinationPath) {
+                return await this.messageManager.sendCommand('checkDestination', {
+                    destinationPath
+                });
+            }
+
+            async move(sourcePath, targetPath, isFolder, overwrite = false) {
+                return await this.messageManager.sendCommand('move', {
+                    sourcePath,
+                    targetPath,
+                    isFolder,
+                    overwrite
+                });
+            }
+
+            async copy(sourcePath, targetPath, isFolder, overwrite = false) {
+                return await this.messageManager.sendCommand('copy', {
+                    sourcePath,
+                    targetPath,
+                    isFolder,
+                    overwrite
+                });
+            }
+
+            async ready() {
+                return await this.messageManager.sendCommand('ready', {});
+            }
+
+            saveTreeState(expandedPaths) {
+                this.messageManager.sendMessage('saveTreeState', { expandedPaths });
+            }
+
+            async executeMove(sourcePath, targetPath, isFolder, overwrite) {
+                try {
+                    await this.move(sourcePath, targetPath, isFolder, overwrite);
+                    this.treeView.moveTreeNodeUI(sourcePath, targetPath);
+                } catch (err) {
+                    this.dialogManager.showErrorDialog(err);
+                }
+            }
+
+            async executeCopy(sourcePath, targetPath, isFolder, overwrite) {
+                try {
+                    await this.copy(sourcePath, targetPath, isFolder, overwrite);
+                    
+                    const targetNode = this.treeView.nodeMap.get(targetPath);
+                    if (targetNode) {
+                        const name = sourcePath.split('/').pop();
+                        const destinationPath = targetPath + '/' + name;
+
+                        if (targetNode.isFolder) {
+                            const li = targetNode.li;
+                            const wasCollapsed = li.classList.contains('sne-collapsed');
+                            
+                            if (wasCollapsed) {
+                                li.classList.remove('sne-collapsed');
+                                this.treeView.addExpandedPath(targetPath);
+                            }
+                            
+                            let ul = targetNode.getUl();
+                            if (!ul || wasCollapsed) {
+                                ul = targetNode.getOrCreateUl();
+                                if (wasCollapsed) {
+                                    const data = await this.expand(targetPath);
+                                    ul.innerHTML = '';
+                                    this.treeView.renderTree(data, targetPath);
+                                } else {
+                                    this.treeView.renderNode({
+                                        name,
+                                        fullPath: destinationPath,
+                                        isFolder: isFolder,
+                                    }, ul);
+                                }
+                            } else {
+                                this.treeView.renderNode({
+                                    name,
+                                    fullPath: destinationPath,
+                                    isFolder: isFolder,
+                                }, ul);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    this.dialogManager.showErrorDialog(err);
+                }
+            }
+
+            async removeNode(node) {
+                try {
+                    const data = await this.remove(node.fullPath, node.name, node.isFolder);
+                    if (data.path && data.path !== '') {
+                        if (node.isFolder) {
+                            this.treeView.removeExpandedPath(node.fullPath);
+                            for (const [path, nodeItem] of this.treeView.nodeMap.entries()) {
+                                if (path.startsWith(node.fullPath + '/')) {
+                                    this.treeView.nodeMap.delete(path);
+                                    this.treeView.removeExpandedPath(path);
+                                }
+                            }
+                        }
+                        node.destroy();
+                        this.treeView.nodeMap.delete(node.fullPath);
+                    }
+                } catch (err) {
+                    if (err && err !== '') {
+                        this.dialogManager.showErrorDialog(err);
+                    }
+                }
+            }
+
+            handlePasteCommand(command, sourcePath, isMovingFolder, dstPath, isDstFolder) {
+                const targetPath = isDstFolder ? dstPath : dstPath.substring(0, dstPath.lastIndexOf('/'));
+
+                if (isMovingFolder && targetPath.startsWith(sourcePath)) {
+                    this.dialogManager.showErrorDialog(`Cannot ${command} a parent folder into its own subfolder.`);
+                    return;
+                }
+
+                if (!isMovingFolder) {
+                    const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+                    if (baseSource === targetPath) {
+                        return;
+                    }
+                }
+
+                if (sourcePath && targetPath && sourcePath !== targetPath) {
+                    const sourceName = sourcePath.split('/').pop();
+                    const targetName = targetPath.split('/').pop();
+                    const destinationPath = targetPath + '/' + sourceName;
+                    
+                    // Check if destination already exists
+                    this.checkDestination(destinationPath)
+                        .then((result) => {
+                            if (result.exists) {
+                                // Destination exists
+                                if (result.isFolder !== isMovingFolder) {
+                                    // Different types - cannot overwrite
+                                    const sourceType = isMovingFolder ? 'folder' : 'file';
+                                    const destType = result.isFolder ? 'folder' : 'file';
+                                    this.dialogManager.showErrorDialog(
+                                        `Cannot overwrite ${destType} "${sourceName}" with ${sourceType}.`);
+                                    return;
+                                }
+                                
+                                // Same type - ask for override confirmation
+                                const itemType = isMovingFolder ? 'folder' : 'file';
+                                const action = command === 'copy' ? 'Copy' : 'Move';
+                                const message = `"${sourceName}" ${itemType} already exists in "${targetName}". Overwrite?`;
+                                
+                                this.dialogManager.showConfirmDialog(
+                                    message,
+                                    () => {
+                                        // User confirmed override
+                                        this.executePasteCommand(command, sourcePath, isMovingFolder, targetPath, true);
+                                    },
+                                    () => {
+                                        // User cancelled - do nothing
+                                    }
+                                );
+                            } else {
+                                // Destination doesn't exist - proceed with normal operation
+                                const itemType = isMovingFolder ? 'folder' : 'file';
+                                const action = command === 'copy' ? 'Copy' : 'Move';
+                                const message = `${action} "${sourceName}" ${itemType} to "${targetName}" folder?`;
+                                
+                                this.dialogManager.showConfirmDialog(
+                                    message,
+                                    () => {
+                                        // User confirmed
+                                        this.executePasteCommand(command, sourcePath, isMovingFolder, targetPath, false);
+                                    },
+                                    () => {
+                                        // User cancelled - do nothing
+                                    }
+                                );
+                            }
+                        })
+                        .catch(err => {
+                            this.dialogManager.showErrorDialog(err);
+                        });
+                }
+            }
+
+            executePasteCommand(command, sourcePath, isMovingFolder, targetPath, overwrite) {
+                const tmp = sourcePath.split("/");
+                const name = tmp[tmp.length - 1];
+                const destinationPath = targetPath + "/" + name;
+
+                // If overwriting, remove existing destination node from UI first
+                if (overwrite) {
+                    const existingDestNode = this.treeView.nodeMap.get(destinationPath);
+                    if (existingDestNode) {
+                        existingDestNode.destroy();
+                        this.treeView.nodeMap.delete(destinationPath);
+                        if (existingDestNode.isFolder) {
+                            // Remove all children of the existing folder from nodeMap
+                            for (const [path, nodeItem] of this.treeView.nodeMap.entries()) {
+                                if (path.startsWith(destinationPath + '/')) {
+                                    this.treeView.nodeMap.delete(path);
+                                    this.treeView.removeExpandedPath(path);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (command === 'move') {
+                    this.executeMove(sourcePath, targetPath, isMovingFolder, overwrite);
+                } else if (command === "copy") {
+                    this.executeCopy(sourcePath, targetPath, isMovingFolder, overwrite);
+                }
+            }
+        }
+
+        // ============================================================================
+        // DragAndDropHandler - Handles all drag-and-drop operations
+        // ============================================================================
+        class DragAndDropHandler {
+            constructor(commandHandler, treeView) {
+                this.commandHandler = commandHandler;
+                this.treeView = treeView;
+            }
+
+            setupDragAndDrop(nodeItem, wrapper) {
+                wrapper.ondragstart = (e) => {
+                    if (nodeItem.isFolder && nodeItem.isTopLevel) {
+                        e.preventDefault();
+                        return;
+                    }
+                    e.dataTransfer.setData('text/plain', 
+                        (nodeItem.isFolder ? "folder:" : "file:") + nodeItem.fullPath);
+                };
+
+                wrapper.ondragover = (e) => {
+                    if (nodeItem.isFolder) {
+                        e.preventDefault();
+                        wrapper.style.backgroundColor = 'var(--vscode-list-hoverBackground)';
+                    }
+                };
+
+                wrapper.ondragleave = () => {
+                    if (nodeItem.isFolder) {
+                        wrapper.style.backgroundColor = '';
+                    }
+                };
+
+                wrapper.ondrop = (e) => {
+                    e.preventDefault();
+                    wrapper.style.backgroundColor = '';
+                    this.handleDrop(e, nodeItem);
+                };
+            }
+
+            async handleDrop(e, targetNodeItem) {
+                const dragData = e.dataTransfer.getData('text/plain').split(":");
+                const sourcePath = dragData[1];
+                const isMovingFolder = dragData[0] === "folder";
+                const targetPath = targetNodeItem.isFolder 
+                    ? targetNodeItem.fullPath 
+                    : targetNodeItem.fullPath.substring(0, targetNodeItem.fullPath.lastIndexOf('/'));
+
+                // Delegate to command handler's handlePasteCommand with 'move' command
+                this.commandHandler.handlePasteCommand('move', sourcePath, isMovingFolder, targetPath, targetNodeItem.isFolder);
+            }
+        }
+
+        // ============================================================================
+        // ContextMenuHandler - Handles all context menu actions
+        // ============================================================================
+        class ContextMenuHandler {
+            constructor(commandHandler, treeView) {
+                this.commandHandler = commandHandler;
+                this.treeView = treeView;
+                this.contextAction = '';
+                this.contextActionTime = 0;
+            }
+
+            hideContextMenu() {
+                this.treeView.contextMenu.style.display = 'none';
+            }
+
+            showContextMenu(x, y, node, li) {
+                const menu = this.treeView.contextMenu;
+                menu.innerHTML = '';
+
+                if (node.isTopLevel) return;
+
+                if (!node.isFolder) {
+                    this.addMenuItem(menu, 'Open', () => {
+                        this.commandHandler.messageManager.sendMessage('openFile', { path: node.fullPath });
+                    });
+                    this.addMenuItem(menu, 'Open as text', () => {
+                        this.commandHandler.messageManager.sendMessage('openText', { path: node.fullPath });
+                    });
+                    this.addSeparator(menu);
+                }
+
+                this.addMenuItem(menu, 'Copy', () => {
+                    this.contextAction = "copy:" + (node.isFolder ? "folder:" : "file:") + node.fullPath;
+                    this.contextActionTime = Date.now();
+                });
+
+                this.addMenuItem(menu, 'Cut', () => {
+                    this.contextActionTime = Date.now();
+                    this.contextAction = "move:" + (node.isFolder ? "folder:" : "file:") + node.fullPath;
+                });
+
+                this.addMenuItem(menu, 'Paste', () => {
+                    if (this.contextAction !== "") {
+                        const tmp = this.contextAction.split(":");
+                        if (tmp.length === 3) {
+                            this.commandHandler.handlePasteCommand(
+                                tmp[0], tmp[2], tmp[1] === "folder",
+                                node.fullPath, node.isFolder);
+                        }
+                    }
+                    this.contextAction = "";
+                    this.contextActionTime = 0;
+                }, (Date.now() - this.contextActionTime > 60000));
+
+                this.addSeparator(menu);
+                this.addMenuItem(menu, 'Open Config', () => {
+                    this.commandHandler.messageManager.sendMessage('openConfig');
+                });
+
+                this.addSeparator(menu);
+                this.addMenuItem(menu, 'Rename', () => {
+                    const span = li.querySelector('.sne-editable');
+                    span.contentEditable = true;
+                    span.focus();
+                });
+
+                this.addMenuItem(menu, 'Delete', () => {
+                    this.commandHandler.removeNode(node);
+                });
+
+                menu.style.left = `${x}px`;
+                menu.style.top = `${y}px`;
+                menu.style.display = 'block';
+            }
+
+            addMenuItem(menu, label, handler, disabled = false) {
+                const div = document.createElement('div');
+                div.textContent = label;
+                if (disabled) {
+                    div.classList.add('menu-item-disabled');
+                }
+                div.onclick = () => {
+                    this.hideContextMenu();
+                    if (!disabled) handler();
+                };
+                menu.appendChild(div);
+            }
+
+            addSeparator(menu) {
+                const hr = document.createElement('hr');
+                hr.className = 'sne-separator';
+                menu.appendChild(hr);
+            }
+        }
+
+        // ============================================================================
+        // NodeItem - Handles UI rendering and delegates to handlers
+        // ============================================================================
         class NodeItem {
-            constructor(tree, node, parentUl, isTopLevel) {
-                // tree ref
-                this.tree = tree;
-
-                // node
+            constructor(treeView, node, parentUl, isTopLevel) {
+                this.treeView = treeView;
                 this.name = node.name;
                 this.fullPath = node.fullPath;
                 this.isFolder = node.isFolder;
-
-                // work-around for top tree folders
                 this.isTopLevel = isTopLevel;
-
-                // node in a parent's scope
-                this.init(parentUl)
+                this.init(parentUl);
             }
 
             init(parentUl) {
@@ -168,9 +749,10 @@
                 span.textContent = this.name;
                 span.contentEditable = false;
 
-                this.initSingleClickHandlers(li, wrapper, span);
+                // Delegate to handlers
+                this.treeView.dragAndDropHandler.setupDragAndDrop(this, wrapper);
                 this.initItemRename(wrapper, span);
-                this.initDragAndDrop(wrapper, span);
+                this.initSingleClickHandlers(li, wrapper, span);
 
                 wrapper.appendChild(icon);
                 wrapper.appendChild(span);
@@ -179,130 +761,7 @@
 
                 this.wrapper = wrapper;
                 this.li = li;
-                this.tree.nodeMap.set(this.fullPath, this);
-            }
-
-            initDragAndDrop(wrapper, span) {
-                wrapper.ondragstart = (e) => {
-                    if (this.isFolder && this.isTopLevel) {
-                        e.preventDefault();
-                        return;
-                    }
-                    e.dataTransfer.setData('text/plain', (this.isFolder ? "folder:" : "file:") + this.fullPath);
-                };
-
-                wrapper.ondragover = (e) => {
-                    if (this.isFolder) {
-                        e.preventDefault();
-                        wrapper.style.backgroundColor = 'var(--vscode-list-hoverBackground)';
-                    }
-                };
-
-                wrapper.ondragleave = () => {
-                    if (this.isFolder) {
-                        wrapper.style.backgroundColor = '';
-                    }
-                };
-
-                wrapper.ondrop = (e) => {
-                    e.preventDefault();
-                    wrapper.style.backgroundColor = '';
-
-                    const dragData = e.dataTransfer.getData('text/plain').split(":");
-
-                    const sourcePath = dragData[1];
-                    const isMovingFolder = dragData[0] === "folder";
-
-                    const targetPath = this.isFolder ? this.fullPath : this.fullPath.substring(0, this.fullPath.lastIndexOf('/'));
-
-                    if (this.isFolder && targetPath.startsWith(sourcePath)) {
-                        this.tree.showErrorDialog('Cannot move a parent folder into its own subfolder.');
-                        return;
-                    }
-
-                    if (!isMovingFolder) {
-                        const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
-                        if (baseSource === targetPath) {
-                            return;
-                        }
-                    }
-
-                    if (sourcePath && targetPath && sourcePath !== targetPath) {
-                        const sourceName = sourcePath.split('/').pop();
-                        const targetName = targetPath.split('/').pop();
-                        const destinationPath = targetPath + '/' + sourceName;
-                        
-                        // Check if destination already exists
-                        this.tree.postCommand('checkDestination', { destinationPath })
-                            .then((result) => {
-                                if (result.exists) {
-                                    // Destination exists
-                                    if (result.isFolder !== isMovingFolder) {
-                                        // Different types - cannot overwrite
-                                        const sourceType = isMovingFolder ? 'folder' : 'file';
-                                        const destType = result.isFolder ? 'folder' : 'file';
-                                        this.tree.showErrorDialog(
-                                            `Cannot overwrite ${destType} "${sourceName}" with ${sourceType}.`);
-                                        return;
-                                    }
-                                    
-                                    // Same type - ask for override confirmation
-                                    const itemType = isMovingFolder ? 'folder' : 'file';
-                                    const message = `"${sourceName}" ${itemType} already exists in "${targetName}". Overwrite?`;
-                                    
-                                    this.tree.showConfirmDialog(
-                                        message,
-                                        () => {
-                                            // User confirmed override
-                                            this.tree.postCommand('move', { 
-                                                sourcePath, 
-                                                targetPath, 
-                                                isFolder: isMovingFolder,
-                                                overwrite: true
-                                            })
-                                                .then(() => {
-                                                    this.tree.moveTreeNodeUI(sourcePath, targetPath);
-                                                })
-                                                .catch(err => {
-                                                    this.tree.showErrorDialog(err);
-                                                });
-                                        },
-                                        () => {
-                                            // User cancelled - do nothing
-                                        }
-                                    );
-                                } else {
-                                    // Destination doesn't exist - proceed with normal move
-                                    const itemType = isMovingFolder ? 'folder' : 'file';
-                                    const message = `Move "${sourceName}" ${itemType} to "${targetName}" folder?`;
-                                    
-                                    this.tree.showConfirmDialog(
-                                        message,
-                                        () => {
-                                            // User confirmed
-                                            this.tree.postCommand('move', { 
-                                                sourcePath, 
-                                                targetPath, 
-                                                isFolder: isMovingFolder 
-                                            })
-                                                .then(() => {
-                                                    this.tree.moveTreeNodeUI(sourcePath, targetPath);
-                                                })
-                                                .catch(err => {
-                                                    this.tree.showErrorDialog(err);
-                                                });
-                                        },
-                                        () => {
-                                            // User cancelled - do nothing
-                                        }
-                                    );
-                                }
-                            })
-                            .catch(err => {
-                                this.tree.showErrorDialog(err);
-                            });
-                    }
-                };
+                this.treeView.nodeMap.set(this.fullPath, this);
             }
 
             initItemRename(wrapper, span) {
@@ -315,53 +774,47 @@
                     if (e.key === 'Esc' && span.contentEditable) {
                         e.preventDefault();
                         span.contentEditable = false;
-                        span.textContent = "eeeee:" +this.name;
+                        span.textContent = this.name;
                     }
                 };
 
-                span.onblur = () => {
-                    if (!span.contentEditable)
-                        return;
+                span.onblur = async () => {
+                    if (!span.contentEditable) return;
 
                     let newName = span.textContent.trim();
                     span.contentEditable = false;
 
                     if (!this.isFolder && !newName.endsWith('.snippet')) {
-                            newName = newName + '.snippet';
+                        newName = newName + '.snippet';
                     }
 
-                    if (newName !== this.name) {    
-
+                    if (newName !== this.name) {
                         const parentPath = this.fullPath.substring(0, this.fullPath.lastIndexOf('/'));
-                        const error = this.tree._validateRename(parentPath, newName);
+                        const error = this.treeView._validateRename(parentPath, newName);
 
                         if (error) {
-                            this.tree.showErrorDialog(error);
+                            this.treeView.commandHandler.dialogManager.showErrorDialog(error);
                             span.textContent = this.name;
                             return;
                         }
 
-                        this.tree.postCommand('rename', {
-                            oldPath: this.fullPath,
-                            newName
-                        }).then((data) => {
+                        try {
+                            await this.treeView.commandHandler.rename(this.fullPath, newName);
                             const oldPath = this.fullPath;
                             this.name = newName;
                             this.fullPath = parentPath + '/' + newName;
                             span.textContent = newName;
 
-                            const nodeItem = this.tree.nodeMap.get(oldPath);
-                            this.tree.nodeMap.set(this.fullPath, nodeItem);
-                            this.tree.nodeMap.delete(oldPath);
+                            this.treeView.nodeMap.set(this.fullPath, this);
+                            this.treeView.nodeMap.delete(oldPath);
 
                             if (this.isFolder) {
-                                this.tree._updateSubtreePaths(oldPath, this.fullPath);
+                                this.treeView._updateSubtreePaths(oldPath, this.fullPath);
                             }
-                        })
-                            .catch(err => {
-                                this.tree.showErrorDialog(err);
-                                span.textContent = this.name;
-                            });
+                        } catch (err) {
+                            this.treeView.commandHandler.dialogManager.showErrorDialog(err);
+                            span.textContent = this.name;
+                        }
                     }
                 };
             }
@@ -369,43 +822,43 @@
             initSingleClickHandlers(li, wrapper, span) {
                 wrapper.oncontextmenu = (e) => {
                     e.preventDefault();
-                    this.tree.selectItem(this);
-                    const x = e.clientX;
-                    const y = e.clientY;
-                    this.tree.showContextMenu(x, y, this, li);
+                    this.treeView.selectItem(this);
+                    this.treeView.contextMenuHandler.showContextMenu(
+                        e.clientX, e.clientY, this, li);
                 };
 
                 wrapper.onclick = (e) => {
-                    this.tree.selectItem(this);
+                    this.treeView.selectItem(this);
 
                     if (this.isFolder) {
                         e.stopPropagation();
                         if (li.classList.contains('sne-collapsed')) {
                             li.classList.remove('sne-collapsed');
-                            this.tree.addExpandedPath(this.fullPath);
+                            this.treeView.addExpandedPath(this.fullPath);
                             if (!li.querySelector('ul')) {
                                 const ul = document.createElement('ul');
                                 li.appendChild(ul);
-                                this.tree.postCommand('expand', { path: this.fullPath })
+                                this.treeView.commandHandler.expand(this.fullPath)
                                     .then((data) => {
-                                        this.tree.renderTree(data, this.fullPath);
+                                        this.treeView.renderTree(data, this.fullPath);
                                     })
                                     .catch(err => {
-                                        this.tree.showErrorDialog(err);
+                                        this.treeView.commandHandler.dialogManager.showErrorDialog(err);
                                     });
                             }
                         } else {
                             li.classList.add('sne-collapsed');
-                            this.tree.removeExpandedPath(this.fullPath);
+                            this.treeView.removeExpandedPath(this.fullPath);
                         }
                     }
                 };
 
                 span.ondblclick = () => {
-                    this.tree.selectItem(this);
-
+                    this.treeView.selectItem(this);
                     if (!this.isFolder) {
-                        vscode.postMessage({ type: 'openFile', path: this.fullPath });
+                        this.treeView.contextMenuHandler.messageManager.sendMessage('openFile', {
+                            path: this.fullPath
+                        });
                     } else {
                         span.focus();
                     }
@@ -446,22 +899,33 @@
             }
         }
 
+        // ============================================================================
+        // SnippetTreeView - Main orchestrator (does NOT access MessageManager directly)
+        // ============================================================================
         class SnippetTreeView {
-            constructor(containerId) {
+            constructor(containerId, messageManager) {
                 this.root = document.getElementById(containerId);
                 this.contextMenu = document.getElementById('sne-context-menu');
                 this.nodeMap = new Map();
                 this.selectedNode = null;
                 this.expandedPaths = new Set();
 
+                // Store messageManager but don't use it directly
+                this.messageManager = messageManager;
+
+                // Initialize command handler first (it has dialogManager)
+                this.commandHandler = new TreeCommandHandler(messageManager, this);
+                
+                // Initialize other handlers (they receive commandHandler)
+                this.dragAndDropHandler = new DragAndDropHandler(this.commandHandler, this);
+                this.contextMenuHandler = new ContextMenuHandler(this.commandHandler, this);
+
+                // Register message handlers via MessageManager
+                this.setupMessageHandlers();
+
                 document.addEventListener('click', () => {
                     this.hideContextMenu();
                 });
-
-                this.callbackMap = new Map();
-                this.callbackCounter = 1;
-                this.contextAction = '';
-                this.contextActionTime = 0;
 
                 this.init();
             }
@@ -476,16 +940,41 @@
                 }, true);
             }
 
-            postCommand(command, data = {}) {
-                return new Promise((resolve, reject) => {
-                    const callbackId = `cb_${Date.now()}_${this.callbackCounter++}`;
-                    this.callbackMap.set(callbackId, { resolve, reject });
+            setupMessageHandlers() {
+                // TreeView registers handlers but doesn't send messages directly
+                this.messageManager.onMessage('addFolder', () => {
+                    this.addFolder();
+                });
 
-                    vscode.postMessage({
-                        type: command,
-                        ...data,
-                        callbackId
-                    });
+                this.messageManager.onMessage('addSnippet', () => {
+                    this.addSnippet();
+                });
+
+                this.messageManager.onMessage('refresh', (message) => {
+                    this.reset();
+                    this.renderTree(message.data.children);
+                    if (message.data.treeState && message.data.treeState.length > 0) {
+                        setTimeout(() => {
+                            this.restoreTreeState(message.data.treeState);
+                        }, 100);
+                    }
+                });
+
+                this.messageManager.onMessage('addNode', (message) => {
+                    const { name, fullPath, isFolder, parentPath } = message.data;
+                    if (this.expandedPaths.has(parentPath)) {
+                        const parentNode = this.nodeMap.get(parentPath);
+                        if (parentNode && parentNode.isFolder) {
+                            const ul = parentNode.getUl();
+                            if (ul && !this.nodeMap.has(fullPath)) {
+                                this.renderNode({
+                                    name: name,
+                                    fullPath: fullPath,
+                                    isFolder: isFolder
+                                }, ul, false);
+                            }
+                        }
+                    }
                 });
             }
 
@@ -538,10 +1027,7 @@
             }
 
             saveTreeState() {
-                vscode.postMessage({
-                    type: 'saveTreeState',
-                    expandedPaths: Array.from(this.expandedPaths)
-                });
+                this.commandHandler.saveTreeState(Array.from(this.expandedPaths));
             }
 
             restoreTreeState(expandedPaths) {
@@ -564,12 +1050,12 @@
                             if (!li.querySelector('ul')) {
                                 const ul = document.createElement('ul');
                                 li.appendChild(ul);
-                                this.postCommand('expand', { path: folderPath })
+                                this.commandHandler.expand(folderPath)
                                     .then((data) => {
                                         this.renderTree(data, folderPath);
                                     })
                                     .catch(err => {
-                                        this.showErrorDialog(err);
+                                        this.commandHandler.dialogManager.showErrorDialog(err);
                                     });
                             }
                         }
@@ -588,7 +1074,7 @@
             _expandAndAddNode(isFolder) {
                 const selected = this.selectedNode;
                 if (!selected) {
-                    this.showErrorDialog("Please select a folder first.");
+                    this.commandHandler.dialogManager.showErrorDialog("Please select a folder first.");
                     return;
                 }
 
@@ -597,7 +1083,7 @@
 
                 const parentLiEl = this.nodeMap.get(parentPath);
                 if (!parentLiEl) {
-                    this.showErrorDialog("Parent folder not found. Please select a folder first.");
+                    this.commandHandler.dialogManager.showErrorDialog("Parent folder not found. Please select a folder first.");
                     return;
                 }
 
@@ -625,7 +1111,7 @@
             _addEmptyEditableNode(parentPath, isFolder) {
                 const parentNode = this.nodeMap.get(parentPath);
                 if (!parentNode) {
-                    this.showErrorDialog("Parent folder not found. Please try again.");
+                    this.commandHandler.dialogManager.showErrorDialog("Parent folder not found. Please try again.");
                     return;
                 }
 
@@ -708,19 +1194,21 @@
                     const newFullPath = parentPath + '/' + newName;
 
                     try {
-                        await tree.postCommand(isFolder ? "createFolder" : "createSnippet", {
-                            path: newFullPath
-                        });
+                        if (isFolder) {
+                            await self.commandHandler.createFolder(newFullPath);
+                        } else {
+                            await self.commandHandler.createSnippet(newFullPath);
+                        }
 
                         cleanup();
                         
-                        const parentNode = tree.nodeMap.get(parentPath);
+                        const parentNode = self.nodeMap.get(parentPath);
                         if (parentNode && parentNode.isFolder) {
                             parentNode.li.classList.remove('sne-collapsed');
-                            tree.addExpandedPath(parentPath);
+                            self.addExpandedPath(parentPath);
                         }
                         
-                        tree.renderNode({
+                        self.renderNode({
                             name: newName,
                             fullPath: newFullPath,
                             isFolder: isFolder
@@ -728,7 +1216,7 @@
 
                     } catch (err) {
                         cleanup();
-                        tree.showErrorDialog(err.message || "Failed to create item.");
+                        self.showErrorDialog(err.message || "Failed to create item.");
                     }
                 }
 
@@ -759,387 +1247,12 @@
 
 
             hideContextMenu() {
-                this.contextMenu.style.display = 'none';
+                this.contextMenuHandler.hideContextMenu();
             }
 
             showContextMenu(x, y, node, li) {
-                this.contextMenu.innerHTML = '';
-
-                if (node.isTopLevel)
-                    return;
-
-                const addSeparator = () => {
-                    const hr = document.createElement('hr');
-                    hr.className = 'sne-separator';
-                    this.contextMenu.appendChild(hr);
-                };
-
-                const addItem = (label, handler, disabled = false) => {
-                    const div = document.createElement('div');
-                    div.textContent = label;
-
-                    if (disabled) {
-                        div.classList.add('menu-item-disabled');
-                    }
-
-                    div.onclick = () => {
-                        this.hideContextMenu();
-                        handler(disabled);
-                    };
-                    this.contextMenu.appendChild(div);
-                };
-
-                if (!node.isFolder) {
-                    addItem('Open', () => vscode.postMessage({ type: 'openFile', path: node.fullPath }));
-                    addItem('Open as text', () => vscode.postMessage({ type: 'openText', path: node.fullPath }));
-                    addSeparator();
-                }
-
-                addItem('Copy', () => {
-                    this.contextAction = "copy:" + (node.isFolder? "folder:": "file:") + node.fullPath;
-                    this.contextActionTime = Date.now();
-                });
-                addItem('Cut', () => {
-                    this.contextActionTime = Date.now();
-                    this.contextAction = "move:" + (node.isFolder? "folder:": "file:") + node.fullPath;
-                });
-                addItem('Paste', (disabled) => {
-                    if (!disabled && this.contextAction != "") {
-                        const tmp = this.contextAction.split(":");
-                        if (tmp.length === 3) {
-                            this.handlePasteCommand(
-                                tmp[0], tmp[2], tmp[1] === "folder",
-                                node.fullPath, node.isFolder);
-                        }
-                    }
-
-                    this.contextAction = "";
-                    this.contextActionTime = 0;
-                }, (Date.now() - this.contextActionTime > 60000));
-
-                addSeparator();
-
-                addItem('Open Config', () => {
-                    vscode.postMessage({ type: 'openConfig' });
-                });
-
-                addSeparator();
-
-                addItem('Rename', () => {
-                    const span = li.querySelector('.sne-editable');
-                    span.contentEditable = true;
-                    span.focus();
-                });
-
-                addItem('Delete', () => {
-                    this.postCommand('remove', { fullPath: node.fullPath, name: node.name, isFolder: node.isFolder })
-                        .then((data) => {
-                            if (data.path && data.path != '') {
-                                if (node.isFolder) {
-                                    this.removeExpandedPath(node.fullPath);
-                                    for (const [path, nodeItem] of this.nodeMap.entries()) {
-                                        if (path.startsWith(node.fullPath + '/')) {
-                                            this.nodeMap.delete(path);
-                                            this.removeExpandedPath(path);
-                                        }
-                                    }
-                                }
-                                node.destroy();
-                                this.nodeMap.delete(node.fullPath);
-                            }
-                        })
-                        .catch(err => {
-                            if (err && err != '') {
-                                this.showErrorDialog(err);
-                            }
-                        });
-                });
-
-                this.contextMenu.style.left = `${x}px`;
-                this.contextMenu.style.top = `${y}px`;
-                this.contextMenu.style.display = 'block';
-            }
-
-            handlePasteCommand(command, sourcePath, isMovingFolder, dstPath, isDstFolder) {
-                const targetPath = isDstFolder ? dstPath : dstPath.substring(0, dstPath.lastIndexOf('/'));
-
-                if (isMovingFolder && targetPath.startsWith(sourcePath)) {
-                    this.showErrorDialog(`Cannot ${command} a parent folder into its own subfolder.`);
-                    return;
-                }
-
-                if (!isMovingFolder) {
-                    const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
-                    if (baseSource === targetPath) {
-                        return;
-                    }
-                }
-
-                if (sourcePath && targetPath && sourcePath !== targetPath) {
-                    const sourceName = sourcePath.split('/').pop();
-                    const targetName = targetPath.split('/').pop();
-                    const destinationPath = targetPath + '/' + sourceName;
-                    
-                    // Check if destination already exists
-                    this.postCommand('checkDestination', { destinationPath })
-                        .then((result) => {
-                            if (result.exists) {
-                                // Destination exists
-                                if (result.isFolder !== isMovingFolder) {
-                                    // Different types - cannot overwrite
-                                    const sourceType = isMovingFolder ? 'folder' : 'file';
-                                    const destType = result.isFolder ? 'folder' : 'file';
-                                    this.showErrorDialog(
-                                        `Cannot overwrite ${destType} "${sourceName}" with ${sourceType}.`);
-                                    return;
-                                }
-                                
-                                // Same type - ask for override confirmation
-                                const itemType = isMovingFolder ? 'folder' : 'file';
-                                const action = command === 'copy' ? 'Copy' : 'Move';
-                                const message = `"${sourceName}" ${itemType} already exists in "${targetName}". Overwrite?`;
-                                
-                                this.showConfirmDialog(
-                                    message,
-                                    () => {
-                                        // User confirmed override
-                                        this.executePasteCommand(command, sourcePath, isMovingFolder, targetPath, true);
-                                    },
-                                    () => {
-                                        // User cancelled - do nothing
-                                    }
-                                );
-                            } else {
-                                // Destination doesn't exist - proceed with normal operation
-                                const itemType = isMovingFolder ? 'folder' : 'file';
-                                const action = command === 'copy' ? 'Copy' : 'Move';
-                                const message = `${action} "${sourceName}" ${itemType} to "${targetName}" folder?`;
-                                
-                                this.showConfirmDialog(
-                                    message,
-                                    () => {
-                                        // User confirmed
-                                        this.executePasteCommand(command, sourcePath, isMovingFolder, targetPath, false);
-                                    },
-                                    () => {
-                                        // User cancelled - do nothing
-                                    }
-                                );
-                            }
-                        })
-                        .catch(err => {
-                            this.showErrorDialog(err);
-                        });
-                }
-            }
-
-            executePasteCommand(command, sourcePath, isMovingFolder, targetPath, overwrite) {
-                const tmp = sourcePath.split("/");
-                const name = tmp[tmp.length - 1];
-                const destinationPath = targetPath + "/" + name;
-
-                // If overwriting, remove existing destination node from UI first
-                if (overwrite) {
-                    const existingDestNode = this.nodeMap.get(destinationPath);
-                    if (existingDestNode) {
-                        existingDestNode.destroy();
-                        this.nodeMap.delete(destinationPath);
-                        if (existingDestNode.isFolder) {
-                            // Remove all children of the existing folder from nodeMap
-                            for (const [path, nodeItem] of this.nodeMap.entries()) {
-                                if (path.startsWith(destinationPath + '/')) {
-                                    this.nodeMap.delete(path);
-                                    this.removeExpandedPath(path);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                this.postCommand(command, { 
-                    sourcePath, 
-                    targetPath, 
-                    isFolder: isMovingFolder,
-                    overwrite: overwrite
-                })
-                    .then(() => {
-                        if (command === 'move') {
-                            this.moveTreeNodeUI(sourcePath, targetPath);
-                        }
-                        else if (command === "copy") {
-                            const targetNode = this.nodeMap.get(targetPath);
-
-                            if (targetNode) {
-                                // Ensure target folder is expanded
-                                if (targetNode.isFolder) {
-                                    const li = targetNode.li;
-                                    const wasCollapsed = li.classList.contains('sne-collapsed');
-                                    
-                                    if (wasCollapsed) {
-                                        li.classList.remove('sne-collapsed');
-                                        this.addExpandedPath(targetPath);
-                                    }
-                                    
-                                    let ul = targetNode.getUl();
-                                    if (!ul || wasCollapsed) {
-                                        ul = targetNode.getOrCreateUl();
-                                        // Load children if folder was collapsed
-                                        if (wasCollapsed) {
-                                            this.postCommand('expand', { path: targetPath })
-                                                .then((data) => {
-                                                    ul.innerHTML = '';
-                                                    this.renderTree(data, targetPath);
-                                                })
-                                                .catch(err => {
-                                                    this.showErrorDialog(err);
-                                                });
-                                        } else {
-                                            this.renderNode({
-                                                name,
-                                                fullPath: destinationPath,
-                                                isFolder: isMovingFolder,
-                                            }, ul);
-                                        }
-                                    } else {
-                                        this.renderNode({
-                                            name,
-                                            fullPath: destinationPath,
-                                            isFolder: isMovingFolder,
-                                        }, ul);
-                                    }
-                                }
-                            }
-                        }
-                    })
-                    .catch(err => {
-                        this.showErrorDialog(err);
-                    });
-            }
-
-            showErrorDialog(errorMessage) {
-                const existing = document.getElementById('sne-error-dialog');
-                if (existing) existing.remove();
-
-                const dialog = document.createElement('div');
-                dialog.id = 'sne-error-dialog';
-                dialog.style.position = 'fixed';
-                dialog.style.top = '50%';
-                dialog.style.left = '50%';
-                dialog.style.transform = 'translate(-50%, -50%)';
-                dialog.style.background = 'var(--vscode-editorWidget-background)';
-                dialog.style.color = 'var(--vscode-editorWidget-foreground)';
-                dialog.style.border = '1px solid var(--vscode-editorWidget-border)';
-                dialog.style.padding = '16px';
-                dialog.style.zIndex = '10000';
-                dialog.style.minWidth = '280px';
-                dialog.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.4)';
-                dialog.style.borderRadius = '6px';
-
-                const message = document.createElement('div');
-                message.textContent = errorMessage;
-                message.style.marginBottom = '12px';
-                dialog.appendChild(message);
-
-                const button = document.createElement('button');
-                button.textContent = 'OK';
-                button.style.padding = '4px 12px';
-                button.style.background = 'var(--vscode-button-background)';
-                button.style.color = 'var(--vscode-button-foreground)';
-                button.style.border = 'none';
-                button.style.borderRadius = '4px';
-                button.style.cursor = 'pointer';
-
-                button.onmouseover = () => {
-                    button.style.background = 'var(--vscode-button-hoverBackground)';
-                };
-
-                button.onmouseout = () => {
-                    button.style.background = 'var(--vscode-button-background)';
-                };
-
-                button.onclick = () => {
-                    dialog.remove();
-                };
-
-                dialog.appendChild(button);
-                document.body.appendChild(dialog);
-            }
-
-            showConfirmDialog(message, onConfirm, onCancel) {
-                const existing = document.getElementById('sne-confirm-dialog');
-                if (existing) existing.remove();
-
-                const dialog = document.createElement('div');
-                dialog.id = 'sne-confirm-dialog';
-                dialog.style.position = 'fixed';
-                dialog.style.top = '50%';
-                dialog.style.left = '50%';
-                dialog.style.transform = 'translate(-50%, -50%)';
-                dialog.style.background = 'var(--vscode-editorWidget-background)';
-                dialog.style.color = 'var(--vscode-editorWidget-foreground)';
-                dialog.style.border = '1px solid var(--vscode-editorWidget-border)';
-                dialog.style.padding = '16px';
-                dialog.style.zIndex = '10000';
-                dialog.style.minWidth = '280px';
-                dialog.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.4)';
-                dialog.style.borderRadius = '6px';
-
-                const messageDiv = document.createElement('div');
-                messageDiv.textContent = message;
-                messageDiv.style.marginBottom = '16px';
-                dialog.appendChild(messageDiv);
-
-                const buttonContainer = document.createElement('div');
-                buttonContainer.style.display = 'flex';
-                buttonContainer.style.gap = '8px';
-                buttonContainer.style.justifyContent = 'flex-end';
-
-                const cancelButton = document.createElement('button');
-                cancelButton.textContent = 'Cancel';
-                cancelButton.style.padding = '4px 12px';
-                cancelButton.style.background = 'var(--vscode-button-secondaryBackground)';
-                cancelButton.style.color = 'var(--vscode-button-secondaryForeground)';
-                cancelButton.style.border = 'none';
-                cancelButton.style.borderRadius = '4px';
-                cancelButton.style.cursor = 'pointer';
-                cancelButton.style.marginRight = '8px';
-
-                const confirmButton = document.createElement('button');
-                confirmButton.textContent = 'Confirm';
-                confirmButton.style.padding = '4px 12px';
-                confirmButton.style.background = 'var(--vscode-button-background)';
-                confirmButton.style.color = 'var(--vscode-button-foreground)';
-                confirmButton.style.border = 'none';
-                confirmButton.style.borderRadius = '4px';
-                confirmButton.style.cursor = 'pointer';
-
-                cancelButton.onmouseover = () => {
-                    cancelButton.style.background = 'var(--vscode-button-secondaryHoverBackground)';
-                };
-                cancelButton.onmouseout = () => {
-                    cancelButton.style.background = 'var(--vscode-button-secondaryBackground)';
-                };
-                confirmButton.onmouseover = () => {
-                    confirmButton.style.background = 'var(--vscode-button-hoverBackground)';
-                };
-                confirmButton.onmouseout = () => {
-                    confirmButton.style.background = 'var(--vscode-button-background)';
-                };
-
-                cancelButton.onclick = () => {
-                    dialog.remove();
-                    if (onCancel) onCancel();
-                };
-
-                confirmButton.onclick = () => {
-                    dialog.remove();
-                    if (onConfirm) onConfirm();
-                };
-
-                buttonContainer.appendChild(cancelButton);
-                buttonContainer.appendChild(confirmButton);
-                dialog.appendChild(buttonContainer);
-                document.body.appendChild(dialog);
+                // Delegate to context menu handler
+                this.contextMenuHandler.showContextMenu(x, y, node, li);
             }
 
             selectItem(nodeItem) {
@@ -1183,8 +1296,8 @@
                 const targetNode = this.nodeMap.get(targetPath);
                 if (!targetNode) {
                     // Target node not found, request refresh from backend
-                    this.showErrorDialog('Target folder not found. Please refresh the tree.');
-                    this.postCommand('ready', {})
+                    this.commandHandler.dialogManager.showErrorDialog('Target folder not found. Please refresh the tree.');
+                    this.commandHandler.ready()
                         .then((data) => {
                             this.reset();
                             this.renderTree(data.children || data);
@@ -1195,7 +1308,7 @@
                             }
                         })
                         .catch(err => {
-                            this.showErrorDialog(err);
+                            this.commandHandler.dialogManager.showErrorDialog(err);
                         });
                     return;
                 }
@@ -1217,7 +1330,7 @@
                         // If UL doesn't exist or folder was collapsed, create it and load children
                         ul = targetNode.getOrCreateUl();
                         // Load children from backend (which includes the moved item)
-                        this.postCommand('expand', { path: targetPath })
+                        this.commandHandler.expand(targetPath)
                             .then((data) => {
                                 // Clear existing children in UL to avoid duplicates
                                 ul.innerHTML = '';
@@ -1225,7 +1338,7 @@
                                 this.renderTree(data, targetPath);
                             })
                             .catch(err => {
-                                this.showErrorDialog(err);
+                                this.commandHandler.dialogManager.showErrorDialog(err);
                             });
                     } else {
                         // Folder is already expanded, just render the moved node
@@ -1312,66 +1425,18 @@
             }
         }
 
-        const tree = new SnippetTreeView('sne-tree');
+        // ============================================================================
+        // Initialization
+        // ============================================================================
+        // Initialize MessageManager first
+        const messageManager = new MessageManager();
+        messageManager.initialize();
 
-        window.addEventListener('message', event => {
-            const message = event.data;
+        // Create TreeView with MessageManager (but TreeView doesn't use it directly)
+        const tree = new SnippetTreeView('sne-tree', messageManager);
 
-            if (message.type === 'onCallback') {
-                const callback = tree.callbackMap.get(message.callbackId);
-                if (callback) {
-                    tree.callbackMap.delete(message.callbackId);
-                    if (message.success) {
-                        callback.resolve(message.data);
-                    } else {
-                        callback.reject(new Error(message.error || 'Unknown error'));
-                    }
-                }
-            }
-
-            if (message.type === "addFolder") {
-                tree.addFolder();
-            }
-
-            if (message.type === "addSnippet") {
-                tree.addSnippet();
-            }
-
-            if (message.type === "refresh") {
-                tree.reset();
-                tree.renderTree(message.data.children);
-                if (message.data.treeState && message.data.treeState.length > 0) {
-                    setTimeout(() => {
-                        tree.restoreTreeState(message.data.treeState);
-                    }, 100);
-                }
-            }
-
-            if (message.type === "addNode") {
-                const { name, fullPath, isFolder, parentPath } = message.data;
-                
-                // Check if parent folder is expanded
-                if (tree.expandedPaths.has(parentPath)) {
-                    const parentNode = tree.nodeMap.get(parentPath);
-                    if (parentNode && parentNode.isFolder) {
-                        const ul = parentNode.getUl();
-                        if (ul) {
-                            // Parent is expanded and has children container
-                            // Check if node already exists to avoid duplicates
-                            if (!tree.nodeMap.has(fullPath)) {
-                                tree.renderNode({
-                                    name: name,
-                                    fullPath: fullPath,
-                                    isFolder: isFolder
-                                }, ul, false);
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        tree.postCommand('ready', {})
+        // Initial load uses commandHandler, not MessageManager directly
+        tree.commandHandler.ready()
             .then((data) => {
                 tree.reset();
                 tree.renderTree(data.children || data);
@@ -1382,7 +1447,7 @@
                 }
             })
             .catch(err => {
-                tree.showErrorDialog(err);
+                tree.commandHandler.dialogManager.showErrorDialog(err);
             });
 
 
