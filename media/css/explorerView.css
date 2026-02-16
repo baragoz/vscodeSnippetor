@@ -1,0 +1,169 @@
+:root {
+    --sne-indent: 14px;
+    --sne-icon-space: 18px;
+}
+
+body {
+    font-family: var(--vscode-font-family, sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+    padding: 4px;
+    margin: 0;
+    background-color: var(--vscode-sideBar-background);
+    color: var(--vscode-sideBar-foreground);
+}
+
+ul {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.sne-folder,
+.sne-file {
+    display: flex;
+    align-items: center;
+    height: 22px;
+    padding-left: var(--sne-indent);
+    cursor: default;
+}
+
+.sne-folder:hover,
+.sne-file:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.sne-folder.drag-over {
+    background-color: var(--vscode-list-dropBackground, #005f5f30);
+}
+
+.sne-selected {
+    background-color: var(--vscode-list-activeSelectionBackground) !important;
+    color: var(--vscode-list-activeSelectionForeground);
+}
+
+.sne-icon {
+    display: inline-block;
+    width: var(--sne-icon-space);
+    text-align: center;
+    margin-right: 4px;
+    color: var(--vscode-icon-foreground);
+}
+
+.sne-editable {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border: 1px solid transparent;
+    padding: 0 2px;
+}
+
+.sne-editable:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+}
+
+.sne-collapsed>ul {
+    display: none;
+}
+
+ul ul {
+    padding-left: var(--sne-indent);
+}
+
+.sne-context {
+    position: fixed;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    border: 1px solid var(--vscode-editorWidget-border);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+}
+
+.sne-context div {
+    padding: 4px 12px;
+    cursor: pointer;
+}
+
+.sne-context div:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.sne-collapsed>.sne-folder .sne-icon {
+    transform: rotate(-90deg);
+    transition: transform 0.15s ease;
+}
+
+.sne-folder .sne-icon {
+    transition: transform 0.15s ease;
+}
+
+.menu-item-disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: default;
+}
+
+.sne-context hr {
+    border: none;
+    border-top: 1px solid var(--vscode-editorWidget-border);
+    margin: 4px 0;
+}
+
+/* Dialog styles */
+.sne-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--vscode-editorWidget-background);
+    color: var(--vscode-editorWidget-foreground);
+    border: 1px solid var(--vscode-editorWidget-border);
+    padding: 16px;
+    z-index: 10000;
+    min-width: 280px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+    border-radius: 6px;
+}
+
+.sne-dialog-message {
+    margin-bottom: 12px;
+}
+
+.sne-dialog-message-large {
+    margin-bottom: 16px;
+}
+
+.sne-dialog-button {
+    padding: 4px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.sne-dialog-button-primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.sne-dialog-button-primary:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.sne-dialog-button-secondary {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    margin-right: 8px;
+}
+
+.sne-dialog-button-secondary:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.sne-dialog-button-container {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}

@@ -158,7 +158,9 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "tsc -p ./"
+    "build:explorer": "node scripts/build-explorer-view.js",
+    "compile": "npm run build:explorer && tsc -p ./",
+    "vscode:prepublish": "npm run compile"
   },
   "resources": [
     "media/snippetView.html",

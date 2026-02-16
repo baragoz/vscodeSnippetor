@@ -564,7 +564,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   private getHtml(): string {
     const nonce = getNonce();
     const htmlPath =
-        path.join(this.context.extensionPath, 'media', 'explorerView.html');
+        path.join(this.context.extensionPath, 'out', 'media', 'explorerView.html');
     let html = fs.readFileSync(htmlPath, 'utf8');
     html = html.replace(/{{nonce}}/g, nonce);
     return html;
