@@ -1,5 +1,4 @@
 // File: SnippetExplorerCommandHandler.ts
-import * as path from 'path';
 import * as vscode from 'vscode';
 import { SnippetExplorerListener } from './SnippetExplorerProvider';
 import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
