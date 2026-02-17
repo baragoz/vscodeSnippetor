@@ -3,14 +3,13 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import { SnippetExplorerProvider, SnippetExplorerListener } from './SnippetExplorerProvider';
+import { SnippetBaseProvider } from './SnippetBaseProvider';
 
 function generateUID(): string {
   return 'uid-' + Math.random().toString(36).substring(2, 10);
 }
 
-export class SnippetViewProvider implements vscode.WebviewViewProvider {
-  private _view?: vscode.WebviewView;
-  private context: vscode.ExtensionContext;
+export class SnippetViewProvider extends SnippetBaseProvider {
   //
   // Error message
   //
@@ -40,10 +39,10 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
   private listenerHelper?: SnippetExplorerListenerHelper;
 
   constructor(context: vscode.ExtensionContext, explorer: SnippetExplorerProvider) {
-    this.context = context;
+    super(context);
     this.explorer = explorer;
 
-    vscode.window.onDidChangeTextEditorSelection((e) => {
+    this.onDidChangeTextEditorSelection((e) => {
       const editor = e.textEditor;
       const document = editor.document;
       const selection = editor.selection;
@@ -128,20 +127,12 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
               }
   }
 
-  resolveWebviewView(
-    view: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken
-  ) {
-    this._view = view;
-    view.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, 'media'))]
-    };
-    view.webview.html = this.getHtml(view.webview);
+  protected getHtmlFileName(): string {
+    return 'snippetView.html';
+  }
 
-    view.webview.onDidReceiveMessage((message) => {
-      switch (message.command) {
+  protected async onDidReceiveMessage(message: any): Promise<void> {
+    switch (message.command) {
         //
         // Snippet file API
         //
@@ -167,7 +158,7 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
           this.refresh();
 
           // Extra message. TODO: may be remove it OR show it in the working snippet view
-          vscode.window.showInformationMessage('Snippet saved');
+          this.showInformationMessage('Snippet saved');
           break;
         //
         //  Snippet items API
@@ -175,20 +166,8 @@ export class SnippetViewProvider implements vscode.WebviewViewProvider {
         case 'openSnippetItem': {
             const snippet = this.snippetList.find(s => s.uid === message.data.uid);
             if (snippet) {
-              const workspaceFolders = vscode.workspace.workspaceFolders;
-              if (!workspaceFolders || workspaceFolders.length === 0) {
-                vscode.window.showErrorMessage('No workspace folder is open.');
-                break;
-              }
-          
-              const rootPath = workspaceFolders[0].uri.fsPath;
-              const absPath = path.join(rootPath, snippet.filePath);
-              const fileUri = vscode.Uri.file(absPath);
-          
               const line = parseInt(snippet.line.split(":")[1]);
-              vscode.window.showTextDocument(fileUri, {
-                selection: new vscode.Range(line - 1, 0, line - 1, 0)
-              });
+              await this.showTextDocument(snippet.filePath, line);
 
               // NOW it is an active snippet item
               this.activeUid = snippet.uid;
@@ -275,20 +254,17 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
           break;
         }
       }
-    });
+  }
 
-    view.onDidChangeVisibility(() => {
-      if (view.visible) {
-        this.refresh();
-      }
-    });
+  protected onVisibilityChanged(): void {
+    this.refresh();
   }
 
   //
   // Clear snippets icon
   //
   public clearSnippets() {
-    vscode.window.showInformationMessage('Working snippet cleared');
+    this.showInformationMessage('Working snippet cleared');
     this.snippetList = [];
     this.editUid = '';
     this.activeUid = '';
@@ -349,9 +325,9 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
 
 
   //
-  // showSaveDialog
+  // showSaveDialog - sends message to webview
   //
-  public showSaveDialog() {
+  public showSaveDialogToView() {
     if (this._view) {
       const selectedPath = this.explorer.getSelectedPath();
       this._view.webview.postMessage({
@@ -401,7 +377,7 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
       this.currentSnippetFullPath = newFileName;
       
       this.refresh();
-      vscode.window.showInformationMessage(`Snippet ${action}: ${path.basename(newFileName)}`);
+      this.showInformationMessage(`Snippet ${action}: ${path.basename(newFileName)}`);
     }
   }
 
@@ -415,19 +391,50 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
     return this.listenerHelper;
   }
 
-  private getHtml(webview: vscode.Webview): string {
-    const nonce = getNonce();
-    const htmlPath = path.join(this.context.extensionPath, 'media', 'snippetView.html');
-    // Images
-    const imagePath = vscode.Uri.file(path.join(this.context.extensionPath, 'media'));
-    const mediaPath = webview.asWebviewUri(imagePath);
+  /**
+   * Read snippet from file item
+   * @param relativePath Relative path to the snippet file (e.g., "Drafts/file.snippet")
+   */
+  public readSnippetFromFileItem(relativePath: string): {
+    error: string; snippets: any[];
+    head: {title: string; description: string; path: string};
+  } {
+    const fsWrapper = this.explorer.getFsWrapper();
+    // relativePath is relative path (e.g., "Drafts/file.snippet")
+    if (!fsWrapper.exists(relativePath)) {
+      this.showErrorMessage('Snippet file not found.');
+      return {
+        error: 'File not found.',
+        snippets: [],
+        head: {title: '', description: '', path: relativePath}
+      };
+    }
 
-    let html = fs.readFileSync(htmlPath, 'utf8');
-    html = html.replace(/{{nonce}}/g, nonce);
-    html = html.replace(/{{media_path}}/g, mediaPath.toString());
-    return html;
+    try {
+      const content = fsWrapper.readFile(relativePath, 'utf-8');
+      const json = JSON.parse(content);
+
+      const title = typeof json.title === 'string' ? json.title : '';
+      const description =
+          typeof json.description === 'string' ? json.description : '';
+
+      const {title: _t, description: _d, ...snippets} = json;
+
+      return {
+        error: '',
+        snippets: json.snippets,
+        head: {title, description, path: relativePath}
+      };
+    } catch (err: any) {
+      this.showErrorMessage(
+          `Error reading snippet file: ${err.message}`);
+      return {
+        error: err.message,
+        snippets: [],
+        head: {title: '', description: '', path: relativePath}
+      };
+    }
   }
-
 }
 
 /**
@@ -515,7 +522,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
         const removedFolderName = path.basename(normalizedNode);
         const activeFileName = path.basename(normalizedActiveFile);
         
-        vscode.window.showWarningMessage(
+        this.provider.showWarningMessage(
           `Snippet file "${activeFileName}" is no longer accessible: parent folder "${removedFolderName}" was removed.`
         );
         
@@ -525,10 +532,18 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
     } else {
       // File removed - check if it's the active file itself
       if (normalizedNode === normalizedActiveFile) {
-        vscode.window.showWarningMessage(`Snippet file was removed: ${path.basename(node)}`);
+        this.provider.showWarningMessage(`Snippet file was removed: ${path.basename(node)}`);
         this.activeFile = '';
         this.provider.closeSnippet();
       }
+    }
+  }
+
+  onNodeActivate(nodePath: string, isFolder: boolean): void {
+    if (!isFolder) {
+      // Only handle file activation (snippet files)
+      const { error, snippets, head } = this.provider.readSnippetFromFileItem(nodePath);
+      this.provider.loadSnippetFromJSON(error, snippets, head);
     }
   }
 
@@ -550,24 +565,26 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
         if (fs.existsSync(activeFilePath)) {
           // File still exists, propose to reload
           const fileName = path.basename(activeFilePath);
-          vscode.window.showWarningMessage(
+          this.provider.showWarningMessage(
             `Folder containing snippet file "${fileName}" was overwritten. Do you want to reload the snippet?`,
-            { modal: true },
-            'Reload',
-            'Keep Current'
+            { modal: true } as vscode.MessageOptions,
+            'Reload' as any,
+            'Keep Current' as any
           ).then(result => {
             if (result === 'Reload') {
               // Reload the snippet from file
-              const explorer = (this.provider as any).explorer;
-              const { error, snippets, head } = explorer.readSnippetFromFileItem(activeFilePath);
-              (this.provider as any).loadSnippetFromJSON(error, snippets, head);
-              vscode.window.showInformationMessage(`Snippet reloaded: ${fileName}`);
+              // Convert absolute path to relative path
+              const fsWrapper = (this.provider as any).explorer.getFsWrapper();
+              const relativePath = fsWrapper.toRelativePath(activeFilePath);
+              const { error, snippets, head } = this.provider.readSnippetFromFileItem(relativePath);
+              this.provider.loadSnippetFromJSON(error, snippets, head);
+              this.provider.showInformationMessage(`Snippet reloaded: ${fileName}`);
             }
           });
         } else {
           // File doesn't exist anymore, close snippet
           const activeFileName = path.basename(normalizedActiveFile);
-          vscode.window.showWarningMessage(
+          this.provider.showWarningMessage(
             `Snippet file "${activeFileName}" no longer exists after folder overwrite.`
           );
           this.activeFile = '';
@@ -580,30 +597,23 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
         const fileName = path.basename(node);
         
         // Show dialog to propose reload (fire and forget - don't block)
-        vscode.window.showWarningMessage(
+        this.provider.showWarningMessage(
           `Snippet file "${fileName}" was overwritten. Do you want to reload it with the new data?`,
-          { modal: true },
-          'Reload',
-          'Keep Current'
+          { modal: true } as vscode.MessageOptions,
+          'Reload' as any,
+          'Keep Current' as any
         ).then(result => {
           if (result === 'Reload') {
             // Reload the snippet from file
-            const explorer = (this.provider as any).explorer;
-            const { error, snippets, head } = explorer.readSnippetFromFileItem(node);
-            (this.provider as any).loadSnippetFromJSON(error, snippets, head);
-            vscode.window.showInformationMessage(`Snippet reloaded: ${fileName}`);
+            // Convert absolute path to relative path
+            const fsWrapper = (this.provider as any).explorer.getFsWrapper();
+            const relativePath = fsWrapper.toRelativePath(node);
+            const { error, snippets, head } = this.provider.readSnippetFromFileItem(relativePath);
+            this.provider.loadSnippetFromJSON(error, snippets, head);
+            this.provider.showInformationMessage(`Snippet reloaded: ${fileName}`);
           }
         });
       }
     }
   }
-}
-
-function getNonce() {
-  let text = '';
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
 }

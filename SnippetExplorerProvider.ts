@@ -1,5 +1,4 @@
 // File: SnippetExplorerProvider.ts
-import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -10,24 +9,24 @@ import {
   RemoveCommandParams
 } from './SnippetExplorerCommandHandler';
 import { SnippetorFilesystemsWrapper, ConfigLoadResult } from './SnippetorFilesystemsWrapper';
+import { SnippetBaseProvider } from './SnippetBaseProvider';
 
 export interface SnippetExplorerListener {
   onNodeRenamed(oldNode: string, newNode: string, isFolder: boolean): void;
   onNodeMoved(oldNode: string, newNode: string, isFolder: boolean): void;
   onNodeRemoved(node: string, isFolder: boolean): void;
   onNodeOverwrite(node: string, isFolder: boolean): void;
+  onNodeActivate(nodePath: string, isFolder: boolean): void;
 }
 
-export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
+export class SnippetExplorerProvider extends SnippetBaseProvider {
   public static readonly viewType = 'snippetExplorer.webview';
-  private _view?: vscode.WebviewView;
-  private context: vscode.ExtensionContext;
   private listener?: SnippetExplorerListener;
   private readonly treeStateKey = 'snippetExplorer.treeState';
   private fsWrapper: SnippetorFilesystemsWrapper;
 
   constructor(context: vscode.ExtensionContext) {
-    this.context = context;
+    super(context);
     this.fsWrapper = new SnippetorFilesystemsWrapper();
     this.initializeStorage();
   }
@@ -36,18 +35,16 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     this.listener = listener;
   }
 
-  resolveWebviewView(webviewView: vscode.WebviewView) {
-    this._view = webviewView;
+  protected getHtmlFileName(): string {
+    return 'explorerView.html';
+  }
 
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots:
-          [vscode.Uri.file(path.join(this.context.extensionPath, 'media'))]
-    };
+  protected getHtmlPath(): string {
+    // Use 'out/media' for HTML file while keeping 'media' for localResourceRoots
+    return 'out/media';
+  }
 
-    webviewView.webview.html = this.getHtml();
-
-    webviewView.webview.onDidReceiveMessage(async message => {
+  protected async onDidReceiveMessage(message: any): Promise<void> {
       switch (message.type) {
         case 'ready': {
           const children = this.getRootChildren();
@@ -80,7 +77,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
             }
             this.sendCallback(true, '', message.callbackId, {});
           } catch (err: any) {
-            vscode.window.showErrorMessage(`Rename failed: ${err.message}`);
+            this.showErrorMessage(`Rename failed: ${err.message}`);
             this.sendCallback(
                 false, `Rename failed: ${err.message}`, message.callbackId, {});
           }
@@ -103,7 +100,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
             sendCallback: this.sendCallback.bind(this)
           };
           handler.execute(params).catch(err => {
-            vscode.window.showErrorMessage(`Move operation failed: ${err}`);
+            this.showErrorMessage(`Move operation failed: ${err}`);
           });
           break;
         }
@@ -124,7 +121,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
             sendCallback: this.sendCallback.bind(this)
           };
           handler.execute(params).catch(err => {
-            vscode.window.showErrorMessage(`Copy operation failed: ${err}`);
+            this.showErrorMessage(`Copy operation failed: ${err}`);
           });
           break;
         }
@@ -150,7 +147,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
             sendCallback: this.sendCallback.bind(this)
           };
           handler.execute(params).catch(err => {
-            vscode.window.showErrorMessage(`Remove operation failed: ${err}`);
+            this.showErrorMessage(`Remove operation failed: ${err}`);
           });
           break;
         }
@@ -164,19 +161,17 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
         }
         case 'openFile': {
           // message.path might be absolute or relative - convert to relative
-          const {error, snippets, head} =
-              this.readSnippetFromFileItem(this.convertToRelativePath(message.path));
-          // You can open a file, webview, or anything:
-          vscode.commands.executeCommand(
-              'workingSnippetView.openFileItem', {error, snippets, head});
+          const relativePath = this.convertToRelativePath(message.path);
+          if (this.listener) {
+            this.listener.onNodeActivate(relativePath, false);
+          }
           break;
         }
         case 'openText': {
           // message.path might be absolute or relative - convert to relative then to absolute for URI
           const relativePath = this.convertToRelativePath(message.path);
           const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
-          const uri = vscode.Uri.file(absolutePath);
-          vscode.commands.executeCommand('vscode.open', uri);
+          await this.openFile(absolutePath, 0);
           break;
         }
         case 'saveTreeState': {
@@ -184,18 +179,14 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'openConfig': {
-          const uri = vscode.Uri.file(this.fsWrapper.getConfigAbsolutePath());
-          vscode.commands.executeCommand('vscode.open', uri);
+          await this.openConfig();
           break;
         }
       }
-    });
+  }
 
-    webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) {
-        this.refresh();
-      }
-    });
+  protected onVisibilityChanged(): void {
+    this.refresh();
   }
 
   private sendCallback(
@@ -316,9 +307,8 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     return this.context.workspaceState.get<string[]>(this.treeStateKey, []);
   }
 
-  public openConfig(): void {
-    const uri = vscode.Uri.file(this.fsWrapper.getConfigAbsolutePath());
-    vscode.commands.executeCommand('vscode.open', uri);
+  public async openConfig(): Promise<void> {
+    await this.openFile(this.fsWrapper.getConfigAbsolutePath(), 0);
   }
 
   private async showInvalidConfigDialog(error: string, defaultFoldersExist: boolean): Promise<void> {
@@ -326,7 +316,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     const options: string[] = ['Open Config'];
     
     if (defaultFoldersExist) {
-      const result = await vscode.window.showWarningMessage(
+      const result = await this.showWarningMessage(
         `${message}\n\nDefault folders will be used.`,
         ...options
       );
@@ -334,7 +324,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
         this.openConfig();
       }
     } else {
-      const result = await vscode.window.showErrorMessage(
+      const result = await this.showErrorMessage(
         `${message}\n\nNo default folders found. Please fix the config.`,
         ...options
       );
@@ -357,7 +347,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
 
   public saveSnippetToFile(payload: any) {
     if (!payload?.path || typeof payload.path !== 'string') {
-      vscode.window.showErrorMessage('Invalid snippet path.');
+      this.showErrorMessage('Invalid snippet path.');
       return;
     }
 
@@ -366,7 +356,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     const parentDir = this.fsWrapper.dirname(relativePath);
 
     if (!this.fsWrapper.exists(parentDir)) {
-      vscode.window.showErrorMessage(`Directory does not exist: ${parentDir}`);
+      this.showErrorMessage(`Directory does not exist: ${parentDir}`);
       return;
     }
 
@@ -377,11 +367,11 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     try {
       this.fsWrapper.writeFile(relativePath, jsonData, 'utf-8');
       const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
-      vscode.window.showInformationMessage(`Snippet saved to: ${absolutePath}`);
+      this.showInformationMessage(`Snippet saved to: ${absolutePath}`);
       // Notify explorer view to add the new snippet if parent folder is expanded
       this.notifyNewSnippetCreated(relativePath, parentDir);
     } catch (err: any) {
-      vscode.window.showErrorMessage(
+      this.showErrorMessage(
           `Failed to save snippet: ${err.message}`);
     }
   }
@@ -396,44 +386,11 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
     return this.fsWrapper.getAutoCompletion(relativePath);
   }
 
-  public readSnippetFromFileItem(relativePath: string): {
-    error: string; snippets: any[];
-    head: {title: string; description: string; path: string};
-  } {
-    // relativePath is relative path (e.g., "Drafts/file.snippet")
-    if (!this.fsWrapper.exists(relativePath)) {
-      vscode.window.showErrorMessage('Snippet file not found.');
-      return {
-        error: 'File not found.',
-        snippets: [],
-        head: {title: '', description: '', path: relativePath}
-      };
-    }
-
-    try {
-      const content = this.fsWrapper.readFile(relativePath, 'utf-8');
-      const json = JSON.parse(content);
-
-      const title = typeof json.title === 'string' ? json.title : '';
-      const description =
-          typeof json.description === 'string' ? json.description : '';
-
-      const {title: _t, description: _d, ...snippets} = json;
-
-      return {
-        error: '',
-        snippets: json.snippets,
-        head: {title, description, path: relativePath}
-      };
-    } catch (err: any) {
-      vscode.window.showErrorMessage(
-          `Error reading snippet file: ${err.message}`);
-      return {
-        error: err.message,
-        snippets: [],
-        head: {title: '', description: '', path: relativePath}
-      };
-    }
+  /**
+   * Get the filesystem wrapper for accessing filesystem operations
+   */
+  public getFsWrapper(): SnippetorFilesystemsWrapper {
+    return this.fsWrapper;
   }
 
   public getSelectedPath() {
@@ -466,7 +423,7 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
           relativePath, JSON.stringify({title: '', description: '', snippets: []}), 'utf-8');
       this.sendCallback(true, '', callbackId);
     } catch (err: any) {
-      vscode.window.showErrorMessage(
+      this.showErrorMessage(
           `Failed to create snippet: ${err.message}`);
       this.sendCallback(
           false, `Failed to create snippet: ${err.message}`, callbackId);
@@ -490,28 +447,9 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
       this.fsWrapper.mkdir(relativePath, false);
       this.sendCallback(true, '', callbackId);
     } catch (err: any) {
-      vscode.window.showErrorMessage(`Failed to create folder: ${err.message}`);
+      this.showErrorMessage(`Failed to create folder: ${err.message}`);
       this.sendCallback(
           false, `Failed to create folder: ${err.message}`, callbackId);
     }
   }
-
-  private getHtml(): string {
-    const nonce = getNonce();
-    const htmlPath =
-        path.join(this.context.extensionPath, 'out', 'media', 'explorerView.html');
-    let html = fs.readFileSync(htmlPath, 'utf8');
-    html = html.replace(/{{nonce}}/g, nonce);
-    return html;
-  }
-}
-
-function getNonce() {
-  let text = '';
-  const possible =
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
 }

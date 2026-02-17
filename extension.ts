@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { SnippetViewProvider } from './SnippetViewProvider';
-import { FileTreeItem, SnippetExplorerProvider } from './SnippetExplorerProvider';
+import { SnippetExplorerProvider } from './SnippetExplorerProvider';
 
 
 let log: vscode.OutputChannel;
@@ -60,15 +60,11 @@ export function activate(context: vscode.ExtensionContext) {
     //
     // OPEN SNIPPET from file
     //
-    vscode.commands.registerCommand('snippetExplorer.open', (item: FileTreeItem) => {
+    vscode.commands.registerCommand('snippetExplorer.open', (item: any) => {
       if (!item.isFolder) {
-        // Use relativePath instead of fullPath
-        const { error, snippets, head } = explorerProvider.readSnippetFromFileItem(item.relativePath);
-        // You can open a file, webview, or anything:
-        vscode.commands.executeCommand(
-          'workingSnippetView.openFileItem',
-          { error, snippets, head }
-        );
+        // Use the listener to activate the node
+        const listener = workingSnippetProvider.getExplorerListener();
+        listener.onNodeActivate(item.relativePath, false);
       }
     })
   );
@@ -124,7 +120,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('workingSnippet.showSaveDialog', () => {
-      workingSnippetProvider.showSaveDialog();
+      workingSnippetProvider.showSaveDialogToView();
     })
   );
 
