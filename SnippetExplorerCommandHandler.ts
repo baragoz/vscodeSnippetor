@@ -1,7 +1,7 @@
 // File: SnippetExplorerCommandHandler.ts
-import * as vscode from 'vscode';
 import { SnippetExplorerListener } from './SnippetExplorerHandler';
 import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
+import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 
 /**
  * Common interface for command handlers
@@ -55,15 +55,18 @@ export abstract class BaseCommandHandler implements ICommandHandler {
   protected fsWrapper: SnippetorFilesystemsWrapper;
   protected listener?: SnippetExplorerListener;
   protected sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void;
+  protected apiProvider: ISnippetorApiProvider;
 
   constructor(
     fsWrapper: SnippetorFilesystemsWrapper,
     listener: SnippetExplorerListener | undefined,
-    sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void
+    sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void,
+    apiProvider: ISnippetorApiProvider
   ) {
     this.fsWrapper = fsWrapper;
     this.listener = listener;
     this.sendCallback = sendCallback;
+    this.apiProvider = apiProvider;
   }
 
   abstract execute(params: CommandParams): Promise<void>;
@@ -163,7 +166,7 @@ export class MoveCommandHandler extends BaseCommandHandler {
       params.isFolder
     );
     if (pathCheckError) {
-      vscode.window.showWarningMessage(pathCheckError);
+      this.apiProvider.showWarningMessage(pathCheckError);
       this.sendCallback(false, pathCheckError, params.callbackId);
       return;
     }
@@ -175,7 +178,7 @@ export class MoveCommandHandler extends BaseCommandHandler {
       params.isFolder
     );
     if (equalityCheckError) {
-      vscode.window.showWarningMessage(equalityCheckError);
+      this.apiProvider.showWarningMessage(equalityCheckError);
       this.sendCallback(false, equalityCheckError, params.callbackId);
       return;
     }
@@ -183,7 +186,7 @@ export class MoveCommandHandler extends BaseCommandHandler {
     // Check 3: Destination exists and is a directory
     const destExistsError = this.checkDestinationExistsAndIsDir(destinationFolder);
     if (destExistsError) {
-      vscode.window.showWarningMessage(`Failed to drop: ${destExistsError}`);
+      this.apiProvider.showWarningMessage(`Failed to drop: ${destExistsError}`);
       this.sendCallback(false, `Failed to drop: ${destExistsError}`, params.callbackId);
       return;
     }
@@ -197,7 +200,7 @@ export class MoveCommandHandler extends BaseCommandHandler {
     }
 
     if (overwriteCheckError) {
-      vscode.window.showErrorMessage(overwriteCheckError);
+      this.apiProvider.showErrorMessage(overwriteCheckError);
       this.sendCallback(false, overwriteCheckError, params.callbackId);
       return;
     }
@@ -210,7 +213,7 @@ export class MoveCommandHandler extends BaseCommandHandler {
       try {
         this.fsWrapper.remove(destination, true);
       } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
+        this.apiProvider.showErrorMessage(`Failed to remove existing item: ${err.message}`);
         this.sendCallback(false, `Failed to remove existing item: ${err.message}`, params.callbackId);
         return;
       }
@@ -220,7 +223,7 @@ export class MoveCommandHandler extends BaseCommandHandler {
     try {
       this.fsWrapper.rename(source, destination);
       const destFolderName = this.fsWrapper.basename(destinationFolder);
-      vscode.window.showInformationMessage(
+      this.apiProvider.showInformationMessage(
         `Moved "${baseName}" to "${destFolderName}"`
       );
 
@@ -241,7 +244,7 @@ export class MoveCommandHandler extends BaseCommandHandler {
 
       this.sendCallback(true, '', params.callbackId);
     } catch (err: any) {
-      vscode.window.showErrorMessage(`Move failed: ${err.message}`);
+      this.apiProvider.showErrorMessage(`Move failed: ${err.message}`);
       this.sendCallback(false, `Move failed: ${err.message}`, params.callbackId);
     }
   }
@@ -317,14 +320,14 @@ export class CopyCommandHandler extends BaseCommandHandler {
 
     // Check if source is a root folder (top-level)
     if (this.fsWrapper.isRootFolder(source)) {
-      vscode.window.showWarningMessage(`Cannot copy top-level folder: ${baseName}`);
+      this.apiProvider.showWarningMessage(`Cannot copy top-level folder: ${baseName}`);
       this.sendCallback(false, `Cannot copy top-level folder: ${baseName}`, params.callbackId);
       return;
     }
 
     if (params.isFolder) {
       if (source === destination || destination.startsWith(source + '/')) {
-        vscode.window.showWarningMessage(`Failed to copy folder.`);
+        this.apiProvider.showWarningMessage(`Failed to copy folder.`);
         this.sendCallback(false, `Failed to copy folder.`, params.callbackId);
         return;
       }
@@ -338,7 +341,7 @@ export class CopyCommandHandler extends BaseCommandHandler {
       if (destIsFolder !== params.isFolder) {
         const sourceType = params.isFolder ? 'folder' : 'file';
         const destType = destIsFolder ? 'folder' : 'file';
-        vscode.window.showErrorMessage(
+        this.apiProvider.showErrorMessage(
           `Cannot overwrite ${destType} "${baseName}" with ${sourceType}.`
         );
         this.sendCallback(
@@ -350,7 +353,7 @@ export class CopyCommandHandler extends BaseCommandHandler {
       }
 
       if (!overwrite) {
-        vscode.window.showErrorMessage(`Destination "${baseName}" already exists.`);
+        this.apiProvider.showErrorMessage(`Destination "${baseName}" already exists.`);
         this.sendCallback(false, `Destination already exists.`, params.callbackId);
         return;
       }
@@ -359,7 +362,7 @@ export class CopyCommandHandler extends BaseCommandHandler {
       try {
         this.fsWrapper.remove(destination, true);
       } catch (err: any) {
-        vscode.window.showErrorMessage(`Failed to remove existing item: ${err.message}`);
+        this.apiProvider.showErrorMessage(`Failed to remove existing item: ${err.message}`);
         this.sendCallback(false, `Failed to remove existing item: ${err.message}`, params.callbackId);
         return;
       }
@@ -370,11 +373,11 @@ export class CopyCommandHandler extends BaseCommandHandler {
       const destFolderName = this.fsWrapper.basename(destinationFolder);
       
       if (params.isFolder) {
-        vscode.window.showInformationMessage(
+        this.apiProvider.showInformationMessage(
           `Copied folder "${baseName}" to "${destFolderName}"`
         );
       } else {
-        vscode.window.showInformationMessage(
+        this.apiProvider.showInformationMessage(
           `Copied file "${baseName}" to "${destFolderName}"`
         );
       }
@@ -389,7 +392,7 @@ export class CopyCommandHandler extends BaseCommandHandler {
       
       this.sendCallback(true, '', params.callbackId);
     } catch (err: any) {
-      vscode.window.showErrorMessage(`Copy failed: ${err.message}`);
+      this.apiProvider.showErrorMessage(`Copy failed: ${err.message}`);
       this.sendCallback(false, `Copy failed: ${err.message}`, params.callbackId);
     }
   }
@@ -409,9 +412,9 @@ export class RemoveCommandHandler extends BaseCommandHandler {
     }
 
     return new Promise((resolve) => {
-      const confirmed = vscode.window.showWarningMessage(
+      const confirmed = this.apiProvider.showWarningMessage(
         `Delete "${params.name}"?`,
-        { modal: true },
+        true, // modal
         'Yes'
       );
 
@@ -429,7 +432,7 @@ export class RemoveCommandHandler extends BaseCommandHandler {
             this.sendCallback(true, '', params.callbackId, { path: params.fullPath });
             resolve();
           } catch (err: any) {
-            vscode.window.showErrorMessage(`Delete failed: ${err.message}`);
+            this.apiProvider.showErrorMessage(`Delete failed: ${err.message}`);
             this.sendCallback(false, `Delete failed: ${err.message}`, params.callbackId);
             resolve();
           }

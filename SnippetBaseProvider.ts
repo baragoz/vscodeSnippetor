@@ -16,6 +16,8 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
   constructor(context: vscode.ExtensionContext, handler: ISnippetorWebViewHandler) {
     this.context = context;
     this.handler = handler;
+    // Set this base provider as the API provider for the handler
+    handler.setApiProvider(this);
   }
 
   /**
@@ -189,6 +191,14 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
    */
   public getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
     return vscode.workspace.getWorkspaceFolder(uri);
+  }
+
+  public getWorkspaceState<T>(key: string, defaultValue: T): T {
+    return this.context.workspaceState.get<T>(key, defaultValue);
+  }
+
+  public setWorkspaceState(key: string, value: any): void {
+    this.context.workspaceState.update(key, value);
   }
 
   protected getNonce(): string {

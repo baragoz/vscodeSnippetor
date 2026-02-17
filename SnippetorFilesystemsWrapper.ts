@@ -175,11 +175,26 @@ export class SnippetorFilesystemsWrapper {
   }
 
   /**
-   * Convert absolute path to relative path
+   * Convert path to relative path (handles both absolute and relative inputs)
    * Returns format: "FolderName" or "FolderName/subpath"
    */
-  public toRelativePath(absolutePath: string): string {
-    const normalized = path.normalize(absolutePath);
+  public toRelativePath(pathInput: string): string {
+    if (!pathInput) {
+      return pathInput;
+    }
+
+    // If it's already a relative path (not absolute), normalize and return as is
+    if (!path.isAbsolute(pathInput)) {
+      // Check if it's a valid relative path format (e.g., "Drafts/subfolder")
+      const normalized = pathInput.replace(/^\/+|\/+$/g, '');
+      if (normalized && normalized.split('/').length > 0) {
+        return normalized;
+      }
+      return pathInput;
+    }
+
+    // Convert absolute path to relative
+    const normalized = path.normalize(pathInput);
 
     for (const folder of this.folders) {
       const normalizedMapping = path.normalize(folder.mapping);

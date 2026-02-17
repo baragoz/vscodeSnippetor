@@ -1,6 +1,4 @@
 // File: SnippetExplorerHandler.ts
-import * as path from 'path';
-import * as vscode from 'vscode';
 import {
   MoveCommandHandler,
   CopyCommandHandler,
@@ -8,7 +6,7 @@ import {
   MoveCopyCommandParams,
   RemoveCommandParams
 } from './SnippetExplorerCommandHandler';
-import { SnippetorFilesystemsWrapper, ConfigLoadResult } from './SnippetorFilesystemsWrapper';
+import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 
@@ -25,20 +23,13 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
   private listener?: SnippetExplorerListener;
   private readonly treeStateKey = 'snippetExplorer.treeState';
   private fsWrapper: SnippetorFilesystemsWrapper;
-  private apiProvider: ISnippetorApiProvider;
-  private context: vscode.ExtensionContext;
+  // API provider for VSCode operations (set via setApiProvider)
+  private apiProvider!: ISnippetorApiProvider;
 
   constructor(
-    context: vscode.ExtensionContext,
-    apiProvider: ISnippetorApiProvider | null,
     fsWrapper: SnippetorFilesystemsWrapper
   ) {
-    this.context = context;
-    this.apiProvider = apiProvider!; // Will be set via setApiProvider
     this.fsWrapper = fsWrapper;
-    if (apiProvider) {
-      this.initializeStorage();
-    }
   }
 
   public setApiProvider(apiProvider: ISnippetorApiProvider): void {
@@ -109,7 +100,8 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           const handler = new MoveCommandHandler(
             this.fsWrapper,
             this.listener,
-            this.sendCallback.bind(this)
+            this.sendCallback.bind(this),
+            this.apiProvider
           );
           const params: MoveCopyCommandParams = {
             sourcePath: this.convertToRelativePath(message.sourcePath),
@@ -130,7 +122,8 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           const handler = new CopyCommandHandler(
             this.fsWrapper,
             this.listener,
-            this.sendCallback.bind(this)
+            this.sendCallback.bind(this),
+            this.apiProvider
           );
           const params: MoveCopyCommandParams = {
             sourcePath: this.convertToRelativePath(message.sourcePath),
@@ -157,7 +150,8 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           const handler = new RemoveCommandHandler(
             this.fsWrapper,
             this.listener,
-            this.sendCallback.bind(this)
+            this.sendCallback.bind(this),
+            this.apiProvider
           );
           const params: RemoveCommandParams = {
             fullPath: this.convertToRelativePath(message.fullPath),
@@ -219,24 +213,7 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
    * Convert path to relative path (handles both absolute and relative inputs)
    */
   private convertToRelativePath(pathInput: string): string {
-    if (!pathInput) {
-      return pathInput;
-    }
-    // If it's already a relative path (doesn't start with / and isn't absolute), return as is
-    if (!path.isAbsolute(pathInput)) {
-      // Check if it's a valid relative path format (e.g., "Drafts/subfolder")
-      const normalized = pathInput.replace(/^\/+|\/+$/g, '');
-      if (normalized && normalized.split('/').length > 0) {
-        return normalized;
-      }
-    }
-    // Try to convert absolute path to relative
-    try {
-      return this.fsWrapper.toRelativePath(pathInput);
-    } catch {
-      // If conversion fails, return as is (might be invalid path)
-      return pathInput;
-    }
+    return this.fsWrapper.toRelativePath(pathInput);
   }
 
   private checkDestination(destinationPath: string, callbackId: string) {
@@ -314,11 +291,11 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
   }
 
   private saveTreeState(expandedPaths: string[]): void {
-    this.context.workspaceState.update(this.treeStateKey, expandedPaths);
+    this.apiProvider.setWorkspaceState(this.treeStateKey, expandedPaths);
   }
 
   private getTreeState(): string[] {
-    return this.context.workspaceState.get<string[]>(this.treeStateKey, []);
+    return this.apiProvider.getWorkspaceState<string[]>(this.treeStateKey, []);
   }
 
   public async openConfig(): Promise<void> {

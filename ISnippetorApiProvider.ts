@@ -52,4 +52,14 @@ export interface ISnippetorApiProvider {
    * Register a listener for text editor selection changes
    */
   onDidChangeTextEditorSelection(listener: (e: vscode.TextEditorSelectionChangeEvent) => any): vscode.Disposable;
+
+  /**
+   * Get a value from workspace state
+   */
+  getWorkspaceState<T>(key: string, defaultValue: T): T;
+
+  /**
+   * Update a value in workspace state
+   */
+  setWorkspaceState(key: string, value: any): void;
 }

@@ -41,19 +41,13 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   private currentSnippetFullPath: string = '';
   // Listener helper instance
   private listenerHelper?: SnippetExplorerListenerHelper;
-  // API provider for VSCode operations
-  private apiProvider: ISnippetorApiProvider;
-  // Context for access to extension context if needed
-  private context: vscode.ExtensionContext;
+  // API provider for VSCode operations (set via setApiProvider)
+  private apiProvider!: ISnippetorApiProvider;
 
   constructor(
-    context: vscode.ExtensionContext,
-    apiProvider: ISnippetorApiProvider | null,
     explorer: any, // SnippetExplorerHandler - using any to avoid circular dependency
     fsWrapper: SnippetorFilesystemsWrapper
   ) {
-    this.context = context;
-    this.apiProvider = apiProvider!; // Will be set via setApiProvider
     this.explorer = explorer;
     this.fsWrapper = fsWrapper;
   }

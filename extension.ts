@@ -10,17 +10,13 @@ export function activate(context: vscode.ExtensionContext) {
   // Create a single filesystem wrapper instance
   const fsWrapper = new SnippetorFilesystemsWrapper();
 
-  // Create handlers first (with null API providers, will be set after base providers are created)
-  const explorerHandler = new SnippetExplorerHandler(context, null, fsWrapper);
-  const snippetHandler = new SnippetViewHandler(context, null, explorerHandler, fsWrapper);
+  // Create handlers first (API providers will be set automatically by base providers)
+  const explorerHandler = new SnippetExplorerHandler(fsWrapper);
+  const snippetHandler = new SnippetViewHandler(explorerHandler, fsWrapper);
 
-  // Create base providers with handlers
+  // Create base providers with handlers (this automatically calls setApiProvider on handlers)
   const explorerProvider = new SnippetBaseProvider(context, explorerHandler);
   const workingSnippetProvider = new SnippetBaseProvider(context, snippetHandler);
-
-  // Set API providers on handlers
-  explorerHandler.setApiProvider(explorerProvider);
-  snippetHandler.setApiProvider(workingSnippetProvider);
 
   // Set explorer reference on snippet handler (now that both are created)
   snippetHandler.setExplorer(explorerHandler);
