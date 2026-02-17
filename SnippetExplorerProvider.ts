@@ -25,9 +25,9 @@ export class SnippetExplorerProvider extends SnippetBaseProvider {
   private readonly treeStateKey = 'snippetExplorer.treeState';
   private fsWrapper: SnippetorFilesystemsWrapper;
 
-  constructor(context: vscode.ExtensionContext) {
+  constructor(context: vscode.ExtensionContext, fsWrapper: SnippetorFilesystemsWrapper) {
     super(context);
-    this.fsWrapper = new SnippetorFilesystemsWrapper();
+    this.fsWrapper = fsWrapper;
     this.initializeStorage();
   }
 
@@ -279,7 +279,7 @@ export class SnippetExplorerProvider extends SnippetBaseProvider {
     });
   }
 
-  private notifyNewSnippetCreated(relativePath: string, parentDir: string): void {
+  public notifyNewSnippetCreated(relativePath: string, parentDir: string): void {
     const fileName = this.fsWrapper.basename(relativePath);
     this.postMessage({
       type: 'addNode',

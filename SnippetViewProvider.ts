@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { SnippetExplorerProvider, SnippetExplorerListener } from './SnippetExplorerProvider';
 import { SnippetBaseProvider } from './SnippetBaseProvider';
+import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 
 function generateUID(): string {
   return 'uid-' + Math.random().toString(36).substring(2, 10);
@@ -33,14 +34,17 @@ export class SnippetViewProvider extends SnippetBaseProvider {
   private cachedSnippetLine: string = '';
   // ref to the explorer view
   private explorer: SnippetExplorerProvider;
+  // Filesystem wrapper instance
+  private fsWrapper: SnippetorFilesystemsWrapper;
   // Full path of currently open snippet file (absolute path)
   private currentSnippetFullPath: string = '';
   // Listener helper instance
   private listenerHelper?: SnippetExplorerListenerHelper;
 
-  constructor(context: vscode.ExtensionContext, explorer: SnippetExplorerProvider) {
+  constructor(context: vscode.ExtensionContext, explorer: SnippetExplorerProvider, fsWrapper: SnippetorFilesystemsWrapper) {
     super(context);
     this.explorer = explorer;
+    this.fsWrapper = fsWrapper;
 
     this.onDidChangeTextEditorSelection((e) => {
       const editor = e.textEditor;
@@ -144,7 +148,7 @@ export class SnippetViewProvider extends SnippetBaseProvider {
           //
           // call it directly
           //
-          this.explorer.saveSnippetToFile({
+          this.saveSnippetToFile({
             title: this.snippetHeadProposal.title,
             description: this.snippetHeadProposal.description,
             path: message.data.path,
@@ -247,7 +251,7 @@ export class SnippetViewProvider extends SnippetBaseProvider {
           break;
         }
         case 'getAutoComplete': {
-          const result = this.explorer.getAutoCompletion(message.data.path);
+          const result = this.getAutoCompletion(message.data.path);
           this.sendMessageToView("autocompleteCallback", result);
           break;
         }
@@ -326,13 +330,66 @@ export class SnippetViewProvider extends SnippetBaseProvider {
   // showSaveDialog - sends message to webview
   //
   public showSaveDialogToView() {
-    const selectedPath = this.explorer.getSelectedPath();
+    const selectedPath = this.getSelectedPath();
     this.postMessage({
       command: 'showSaveDialog',
       data: {
         selectedPath
       }
     });
+  }
+
+  /**
+   * Save snippet to file
+   */
+  private saveSnippetToFile(payload: any) {
+    if (!payload?.path || typeof payload.path !== 'string') {
+      this.showErrorMessage('Invalid snippet path.');
+      return;
+    }
+
+    // payload.path is relative path (e.g., "Drafts/subfolder/file.snippet")
+    const relativePath = payload.path;
+    const parentDir = this.fsWrapper.dirname(relativePath);
+
+    if (!this.fsWrapper.exists(parentDir)) {
+      this.showErrorMessage(`Directory does not exist: ${parentDir}`);
+      return;
+    }
+
+    // Exclude path from payload
+    const {path: _ignored, ...content} = payload;
+    const jsonData = JSON.stringify(content, null, 2);
+
+    try {
+      this.fsWrapper.writeFile(relativePath, jsonData, 'utf-8');
+      const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
+      this.showInformationMessage(`Snippet saved to: ${absolutePath}`);
+      // Notify explorer view to add the new snippet if parent folder is expanded
+      this.explorer.notifyNewSnippetCreated(relativePath, parentDir);
+    } catch (err: any) {
+      this.showErrorMessage(
+          `Failed to save snippet: ${err.message}`);
+    }
+  }
+
+  /**
+   * Get auto-completion for path
+   */
+  private getAutoCompletion(relativePath: string): {
+    path: string,
+    error: string,
+    autocomplete: {name: string; isDirectory: boolean}[]
+  } {
+    // Delegate to wrapper
+    return this.fsWrapper.getAutoCompletion(relativePath);
+  }
+
+  /**
+   * Get selected path (default to Drafts)
+   */
+  private getSelectedPath() {
+    return 'Drafts/';
   }
 
   private sendMessageToView(action:string, data:any) {
@@ -391,9 +448,8 @@ export class SnippetViewProvider extends SnippetBaseProvider {
     error: string; snippets: any[];
     head: {title: string; description: string; path: string};
   } {
-    const fsWrapper = this.explorer.getFsWrapper();
     // relativePath is relative path (e.g., "Drafts/file.snippet")
-    if (!fsWrapper.exists(relativePath)) {
+    if (!this.fsWrapper.exists(relativePath)) {
       this.showErrorMessage('Snippet file not found.');
       return {
         error: 'File not found.',
@@ -403,7 +459,7 @@ export class SnippetViewProvider extends SnippetBaseProvider {
     }
 
     try {
-      const content = fsWrapper.readFile(relativePath, 'utf-8');
+      const content = this.fsWrapper.readFile(relativePath, 'utf-8');
       const json = JSON.parse(content);
 
       const title = typeof json.title === 'string' ? json.title : '';
@@ -566,8 +622,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
             if (result === 'Reload') {
               // Reload the snippet from file
               // Convert absolute path to relative path
-              const fsWrapper = (this.provider as any).explorer.getFsWrapper();
-              const relativePath = fsWrapper.toRelativePath(activeFilePath);
+              const relativePath = (this.provider as any).fsWrapper.toRelativePath(activeFilePath);
               const { error, snippets, head } = this.provider.readSnippetFromFileItem(relativePath);
               this.provider.loadSnippetFromJSON(error, snippets, head);
               this.provider.showInformationMessage(`Snippet reloaded: ${fileName}`);
@@ -598,8 +653,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
           if (result === 'Reload') {
             // Reload the snippet from file
             // Convert absolute path to relative path
-            const fsWrapper = (this.provider as any).explorer.getFsWrapper();
-            const relativePath = fsWrapper.toRelativePath(node);
+            const relativePath = (this.provider as any).fsWrapper.toRelativePath(node);
             const { error, snippets, head } = this.provider.readSnippetFromFileItem(relativePath);
             this.provider.loadSnippetFromJSON(error, snippets, head);
             this.provider.showInformationMessage(`Snippet reloaded: ${fileName}`);

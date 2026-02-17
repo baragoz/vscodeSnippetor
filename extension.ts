@@ -1,16 +1,20 @@
 import * as vscode from 'vscode';
 import { SnippetViewProvider } from './SnippetViewProvider';
 import { SnippetExplorerProvider } from './SnippetExplorerProvider';
+import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 
 
 
 export function activate(context: vscode.ExtensionContext) {
+  // Create a single filesystem wrapper instance
+  const fsWrapper = new SnippetorFilesystemsWrapper();
+
   // Tree View for Explorer
-  const explorerProvider = new SnippetExplorerProvider(context);
+  const explorerProvider = new SnippetExplorerProvider(context, fsWrapper);
   vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
 
   // Webview for Working Snippet
-  const workingSnippetProvider = new SnippetViewProvider(context, explorerProvider);
+  const workingSnippetProvider = new SnippetViewProvider(context, explorerProvider, fsWrapper);
   vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
 
   // Set listener for file operations in explorer provider
