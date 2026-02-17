@@ -72,23 +72,6 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
-  context.subscriptions.push(
-    //
-    // RENAME tree item
-    //
-    vscode.commands.registerCommand('snippetExplorer.rename', (item: FileTreeItem) => {
-      explorerProvider.renameItem(item);
-    })
-  );
-
-  context.subscriptions.push(
-    //
-    // REMOVE tree item
-    //
-    vscode.commands.registerCommand('snippetExplorer.remove', (item: FileTreeItem) => {
-      explorerProvider.removeItem(item);
-    })
-  );
 
   context.subscriptions.push(
     //

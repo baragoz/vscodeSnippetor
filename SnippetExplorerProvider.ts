@@ -18,26 +18,6 @@ export interface SnippetExplorerListener {
   onNodeOverwrite(node: string, isFolder: boolean): void;
 }
 
-export class FileTreeItem extends vscode.TreeItem {
-  isFolder: boolean;
-  public readonly relativePath: string; // Relative path (e.g., "Drafts/subfolder")
-  
-  constructor(
-      public readonly fullPath: string, // Absolute path for resourceUri
-      public readonly label: string,
-      public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-      relativePath: string) {
-    super(label, collapsibleState);
-    this.resourceUri = vscode.Uri.file(fullPath);
-    this.iconPath = collapsibleState === vscode.TreeItemCollapsibleState.None ?
-        new vscode.ThemeIcon('file') :
-        new vscode.ThemeIcon('folder');
-    this.isFolder = collapsibleState !== vscode.TreeItemCollapsibleState.None;
-    this.command = undefined;
-    this.relativePath = relativePath;
-  }
-}
-
 export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'snippetExplorer.webview';
   private _view?: vscode.WebviewView;
@@ -459,51 +439,6 @@ export class SnippetExplorerProvider implements vscode.WebviewViewProvider {
   public getSelectedPath() {
     return 'Drafts/';
   }
-
-  public async renameItem(item: FileTreeItem) {
-    const newName = await vscode.window.showInputBox(
-        {prompt: 'Rename file/folder', value: item.label});
-    if (newName && newName !== item.label) {
-      // item.relativePath is the relative path
-      const parentDir = this.fsWrapper.dirname(item.relativePath);
-      const newRelativePath = parentDir ? `${parentDir}/${newName}` : newName;
-      
-      try {
-        this.fsWrapper.rename(item.relativePath, newRelativePath);
-        
-        // Notify listener about the rename (with absolute paths for compatibility)
-        if (this.listener) {
-          const oldAbsolute = this.fsWrapper.toAbsolutePath(item.relativePath);
-          const newAbsolute = this.fsWrapper.toAbsolutePath(newRelativePath);
-          this.listener.onNodeRenamed(oldAbsolute, newAbsolute, item.isFolder);
-        }
-        
-        this.refresh();
-      } catch (err: any) {
-        vscode.window.showErrorMessage(`Rename failed: ${err.message}`);
-      }
-    }
-  }
-
-  public async removeItem(item: FileTreeItem) {
-    // item.relativePath is the relative path
-    const handler = new RemoveCommandHandler(
-      this.fsWrapper,
-      this.listener,
-      this.sendCallback.bind(this)
-    );
-    const params: RemoveCommandParams = {
-      fullPath: item.relativePath,
-      name: item.label,
-      isFolder: item.isFolder,
-      callbackId: '', // Not used for this public method
-      listener: this.listener,
-      sendCallback: this.sendCallback.bind(this)
-    };
-    await handler.execute(params);
-    this.refresh();
-  }
-
 
   public async addSnippet() {
     if (this._view) {

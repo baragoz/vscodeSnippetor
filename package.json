@@ -52,14 +52,6 @@
         "title": "Open Snippet"
       },
       {
-        "command": "snippetExplorer.rename",
-        "title": "Rename Snippet"
-      },
-      {
-        "command": "snippetExplorer.remove",
-        "title": "Remove Snippet"
-      },
-      {
         "command": "snippetExplorer.addSnippet",
         "title": "Add Snippet",
         "icon": "$(new-file)"
@@ -99,16 +91,6 @@
       "view/item/context": [
       {
         "command": "snippetExplorer.open",
-        "when": "view == snippetExplorerView",
-        "group": "navigation"
-      },
-      {
-        "command": "snippetExplorer.rename",
-        "when": "view == snippetExplorerView",
-        "group": "navigation"
-      },
-      {
-        "command": "snippetExplorer.remove",
         "when": "view == snippetExplorerView",
         "group": "navigation"
       }
