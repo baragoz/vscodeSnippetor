@@ -200,6 +200,16 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
     return vscode.window.showSaveDialog(options);
   }
 
+  /**
+   * Post a message to the webview
+   * @param message The message to send to the webview
+   */
+  protected postMessage(message: any): void {
+    if (this._view) {
+      this._view.webview.postMessage(message);
+    }
+  }
+
   protected getNonce(): string {
     let text = '';
     const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

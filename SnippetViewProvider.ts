@@ -71,7 +71,7 @@ export class SnippetViewProvider extends SnippetBaseProvider {
         console.log("Cached file path and line: ", this.cachedFilePath, this.cachedSnippetLine);
 
         if (this.editUid !== "") {
-          this._view?.webview.postMessage({
+          this.postMessage({
             command: 'updateFilePath',
             data: {
               uid: this.editUid,
@@ -100,7 +100,7 @@ export class SnippetViewProvider extends SnippetBaseProvider {
     //
     // Create a new snippet item on the UI side too
     //
-    this._view?.webview.postMessage({
+    this.postMessage({
       command: 'newSnippetItem',
       data: {
         index: insertIndex,
@@ -237,7 +237,6 @@ export class SnippetViewProvider extends SnippetBaseProvider {
         //
         case 'updateSnippetHead': {
           // NOTE: we do not change snippet head, just proposal only
-console.log("UPDATE SNIPPET HEAD !!!!! ", message);
           // Save title/description/path
           this.snippetHeadProposal = {
             ...this.snippetHeadProposal,
@@ -248,7 +247,6 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
           break;
         }
         case 'getAutoComplete': {
-          console.log("GET AUTO COMPLETE", message);
           const result = this.explorer.getAutoCompletion(message.data.path);
           this.sendMessageToView("autocompleteCallback", result);
           break;
@@ -328,39 +326,33 @@ console.log("UPDATE SNIPPET HEAD !!!!! ", message);
   // showSaveDialog - sends message to webview
   //
   public showSaveDialogToView() {
-    if (this._view) {
-      const selectedPath = this.explorer.getSelectedPath();
-      this._view.webview.postMessage({
-        command: 'showSaveDialog',
-        data: {
-          selectedPath
-        }
-      });
-    }
+    const selectedPath = this.explorer.getSelectedPath();
+    this.postMessage({
+      command: 'showSaveDialog',
+      data: {
+        selectedPath
+      }
+    });
   }
 
   private sendMessageToView(action:string, data:any) {
-    if (this._view) {
-      this._view.webview.postMessage({
-        command: action,
-        data: data
-      });
-    }
+    this.postMessage({
+      command: action,
+      data: data
+    });
   }
 
   private refresh() {
-    if (this._view) {
-      this._view.webview.postMessage({
-        command: 'updateSnippetList',
-        data: {
-          snippets: this.snippetList,
-          activeUid: this.activeUid,
-          head1: this.snippetHead,
-          head2: this.snippetHeadProposal,
-          error: this.errorMessage
-        }
-      });
-    }
+    this.postMessage({
+      command: 'updateSnippetList',
+      data: {
+        snippets: this.snippetList,
+        activeUid: this.activeUid,
+        head1: this.snippetHead,
+        head2: this.snippetHeadProposal,
+        error: this.errorMessage
+      }
+    });
   }
 
   /**

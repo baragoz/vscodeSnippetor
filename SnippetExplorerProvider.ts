@@ -191,10 +191,7 @@ export class SnippetExplorerProvider extends SnippetBaseProvider {
 
   private sendCallback(
       success: boolean, error: string, callbackId: string, data = {}) {
-    if (this._view) {
-      this._view.webview.postMessage(
-          {type: 'onCallback', data, success, error, callbackId});
-    }
+    this.postMessage({type: 'onCallback', data, success, error, callbackId});
   }
 
   /**
@@ -274,29 +271,25 @@ export class SnippetExplorerProvider extends SnippetBaseProvider {
       await this.showInvalidConfigDialog(result.error, defaultFoldersExist);
     }
 
-    if (this._view) {
-      const children = this.getRootChildren();
-      const treeState = this.getTreeState();
-      this._view.webview.postMessage({
-        type: 'refresh',
-        data: {children, treeState}
-      });
-    }
+    const children = this.getRootChildren();
+    const treeState = this.getTreeState();
+    this.postMessage({
+      type: 'refresh',
+      data: {children, treeState}
+    });
   }
 
   private notifyNewSnippetCreated(relativePath: string, parentDir: string): void {
-    if (this._view) {
-      const fileName = this.fsWrapper.basename(relativePath);
-      this._view.webview.postMessage({
-        type: 'addNode',
-        data: {
-          name: fileName,
-          fullPath: relativePath, // Send relative path
-          isFolder: false,
-          parentPath: parentDir
-        }
-      });
-    }
+    const fileName = this.fsWrapper.basename(relativePath);
+    this.postMessage({
+      type: 'addNode',
+      data: {
+        name: fileName,
+        fullPath: relativePath, // Send relative path
+        isFolder: false,
+        parentPath: parentDir
+      }
+    });
   }
 
   private saveTreeState(expandedPaths: string[]): void {
@@ -398,15 +391,11 @@ export class SnippetExplorerProvider extends SnippetBaseProvider {
   }
 
   public async addSnippet() {
-    if (this._view) {
-      this._view.webview.postMessage({type: 'addSnippet', data: {}});
-    }
+    this.postMessage({type: 'addSnippet', data: {}});
   }
 
   public async addFolder() {
-    if (this._view) {
-      this._view.webview.postMessage({type: 'addFolder', data: {}});
-    }
+    this.postMessage({type: 'addFolder', data: {}});
   }
 
   private async createSnippet(newPath: string, callbackId: string) {
