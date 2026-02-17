@@ -142,30 +142,36 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
   // ============================================================================
 
   public showInformationMessage(message: string, ...items: string[]): Thenable<string | undefined>;
-  public showInformationMessage<T extends vscode.MessageItem>(message: string, options: vscode.MessageOptions, ...items: T[]): Thenable<T | undefined>;
-  public showInformationMessage(message: string, optionsOrItem?: any, ...rest: any[]): Thenable<any> {
-    if (optionsOrItem && typeof optionsOrItem === 'object' && 'modal' in optionsOrItem) {
-      return vscode.window.showInformationMessage(message, optionsOrItem, ...rest);
+  public showInformationMessage(message: string, modal: boolean, ...items: string[]): Thenable<string | undefined>;
+  public showInformationMessage(message: string, modalOrItem?: boolean | string, ...rest: string[]): Thenable<string | undefined> {
+    if (typeof modalOrItem === 'boolean') {
+      return vscode.window.showInformationMessage(message, { modal: modalOrItem }, ...rest);
     }
-    return vscode.window.showInformationMessage(message, optionsOrItem, ...rest);
+    // If modalOrItem is a string, it's the first item, otherwise it's undefined
+    const allItems = typeof modalOrItem === 'string' ? [modalOrItem, ...rest] : rest;
+    return vscode.window.showInformationMessage(message, ...allItems);
   }
 
   public showErrorMessage(message: string, ...items: string[]): Thenable<string | undefined>;
-  public showErrorMessage<T extends vscode.MessageItem>(message: string, options: vscode.MessageOptions, ...items: T[]): Thenable<T | undefined>;
-  public showErrorMessage(message: string, optionsOrItem?: any, ...rest: any[]): Thenable<any> {
-    if (optionsOrItem && typeof optionsOrItem === 'object' && 'modal' in optionsOrItem) {
-      return vscode.window.showErrorMessage(message, optionsOrItem, ...rest);
+  public showErrorMessage(message: string, modal: boolean, ...items: string[]): Thenable<string | undefined>;
+  public showErrorMessage(message: string, modalOrItem?: boolean | string, ...rest: string[]): Thenable<string | undefined> {
+    if (typeof modalOrItem === 'boolean') {
+      return vscode.window.showErrorMessage(message, { modal: modalOrItem }, ...rest);
     }
-    return vscode.window.showErrorMessage(message, optionsOrItem, ...rest);
+    // If modalOrItem is a string, it's the first item, otherwise it's undefined
+    const allItems = typeof modalOrItem === 'string' ? [modalOrItem, ...rest] : rest;
+    return vscode.window.showErrorMessage(message, ...allItems);
   }
 
   public showWarningMessage(message: string, ...items: string[]): Thenable<string | undefined>;
-  public showWarningMessage<T extends vscode.MessageItem>(message: string, options: vscode.MessageOptions, ...items: T[]): Thenable<T | undefined>;
-  public showWarningMessage(message: string, optionsOrItem?: any, ...rest: any[]): Thenable<any> {
-    if (optionsOrItem && typeof optionsOrItem === 'object' && 'modal' in optionsOrItem) {
-      return vscode.window.showWarningMessage(message, optionsOrItem, ...rest);
+  public showWarningMessage(message: string, modal: boolean, ...items: string[]): Thenable<string | undefined>;
+  public showWarningMessage(message: string, modalOrItem?: boolean | string, ...rest: string[]): Thenable<string | undefined> {
+    if (typeof modalOrItem === 'boolean') {
+      return vscode.window.showWarningMessage(message, { modal: modalOrItem }, ...rest);
     }
-    return vscode.window.showWarningMessage(message, optionsOrItem, ...rest);
+    // If modalOrItem is a string, it's the first item, otherwise it's undefined
+    const allItems = typeof modalOrItem === 'string' ? [modalOrItem, ...rest] : rest;
+    return vscode.window.showWarningMessage(message, ...allItems);
   }
 
   protected get activeTextEditor(): vscode.TextEditor | undefined {
@@ -208,6 +214,15 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
     if (this._view) {
       this._view.webview.postMessage(message);
     }
+  }
+
+  /**
+   * Get the workspace folder for a given URI
+   * @param uri The URI to get the workspace folder for
+   * @returns The workspace folder, or undefined if not found
+   */
+  protected getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
+    return vscode.workspace.getWorkspaceFolder(uri);
   }
 
   protected getNonce(): string {

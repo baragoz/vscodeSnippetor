@@ -3,8 +3,6 @@ import { SnippetViewProvider } from './SnippetViewProvider';
 import { SnippetExplorerProvider } from './SnippetExplorerProvider';
 
 
-let log: vscode.OutputChannel;
-
 
 export function activate(context: vscode.ExtensionContext) {
   // Tree View for Explorer
@@ -23,6 +21,7 @@ export function activate(context: vscode.ExtensionContext) {
   // vscode.window.registerWebviewViewProvider('umlDiagramView', umlProvider);
 
 
+  // TODO:CHECK why it is snippet view instead of explorer view?
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       'swArchitectureSnippets.sidebar',
@@ -31,6 +30,8 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   console.log('Extension "Software Architecture Snippets" is now active!');
+
+  // TODO = check if needed - remove it if not needed
   context.subscriptions.push(
     vscode.commands.registerCommand('swArchitectureSnippets.addSelectionToSnippet', () => {
       console.log('Command executed: Add Selection to Snippet');
@@ -55,6 +56,9 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  //
+  // CHECK IF NOT NEEDED - REMOVE IT IF NOT NEEDED
+  //
   context.subscriptions.push(
 
     //
@@ -124,6 +128,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // CHECK IF NOT NEEDED - REMOVE IT IF NOT NEEDED
   context.subscriptions.push(
     vscode.commands.registerCommand('workingSnippetView.openFileItem', (data: any) => {
       workingSnippetProvider.loadSnippetFromJSON(data.error, data.snippets, data.head);

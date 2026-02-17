@@ -58,7 +58,7 @@ export class SnippetViewProvider extends SnippetBaseProvider {
         const line = selection.active.line + 1;
         const fullPath = document.fileName;
         console.log("Selected line: ", line, " in file: ", fullPath);
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        const workspaceFolder = this.getWorkspaceFolder(document.uri);
         const relativePath = workspaceFolder 
             ? path.relative(workspaceFolder.uri.fsPath, fullPath) 
             : fullPath;
@@ -559,9 +559,9 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
           const fileName = path.basename(activeFilePath);
           this.provider.showWarningMessage(
             `Folder containing snippet file "${fileName}" was overwritten. Do you want to reload the snippet?`,
-            { modal: true } as vscode.MessageOptions,
-            'Reload' as any,
-            'Keep Current' as any
+            true,
+            'Reload',
+            'Keep Current'
           ).then(result => {
             if (result === 'Reload') {
               // Reload the snippet from file
@@ -591,9 +591,9 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
         // Show dialog to propose reload (fire and forget - don't block)
         this.provider.showWarningMessage(
           `Snippet file "${fileName}" was overwritten. Do you want to reload it with the new data?`,
-          { modal: true } as vscode.MessageOptions,
-          'Reload' as any,
-          'Keep Current' as any
+          true,
+          'Reload',
+          'Keep Current'
         ).then(result => {
           if (result === 'Reload') {
             // Reload the snippet from file
