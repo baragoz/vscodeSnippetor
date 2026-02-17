@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { SnippetViewProvider } from './SnippetViewProvider';
-import { SnippetExplorerProvider } from './SnippetExplorerProvider';
+import { SnippetViewHandler } from './SnippetViewHandler';
+import { SnippetExplorerHandler } from './SnippetExplorerHandler';
+import { SnippetBaseProvider } from './SnippetBaseProvider';
 import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 
 
@@ -9,16 +10,27 @@ export function activate(context: vscode.ExtensionContext) {
   // Create a single filesystem wrapper instance
   const fsWrapper = new SnippetorFilesystemsWrapper();
 
-  // Tree View for Explorer
-  const explorerProvider = new SnippetExplorerProvider(context, fsWrapper);
-  vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
+  // Create handlers first (with null API providers, will be set after base providers are created)
+  const explorerHandler = new SnippetExplorerHandler(context, null, fsWrapper);
+  const snippetHandler = new SnippetViewHandler(context, null, explorerHandler, fsWrapper);
 
-  // Webview for Working Snippet
-  const workingSnippetProvider = new SnippetViewProvider(context, explorerProvider, fsWrapper);
+  // Create base providers with handlers
+  const explorerProvider = new SnippetBaseProvider(context, explorerHandler);
+  const workingSnippetProvider = new SnippetBaseProvider(context, snippetHandler);
+
+  // Set API providers on handlers
+  explorerHandler.setApiProvider(explorerProvider);
+  snippetHandler.setApiProvider(workingSnippetProvider);
+
+  // Set explorer reference on snippet handler (now that both are created)
+  snippetHandler.setExplorer(explorerHandler);
+
+  // Register with VSCode
+  vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
   vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
 
-  // Set listener for file operations in explorer provider
-  explorerProvider.setListener(workingSnippetProvider.getExplorerListener());
+  // Set listener for file operations in explorer handler
+  explorerHandler.setListener(snippetHandler.getExplorerListener());
 
   // Webview for UML Diagrams
   //const umlProvider = new UMLViewProvider(context);
@@ -56,7 +68,7 @@ export function activate(context: vscode.ExtensionContext) {
     // REFRESH - refresh tree
     //
     vscode.commands.registerCommand('snippetExplorer.refresh', async () => {
-      await explorerProvider.refresh();
+      await explorerHandler.refresh();
     })
   );
 
@@ -71,7 +83,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('snippetExplorer.open', (item: any) => {
       if (!item.isFolder) {
         // Use the listener to activate the node
-        const listener = workingSnippetProvider.getExplorerListener();
+        const listener = snippetHandler.getExplorerListener();
         listener.onNodeActivate(item.relativePath, false);
       }
     })
@@ -82,7 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
     // ADD SNIPPET
     //
     vscode.commands.registerCommand('snippetExplorer.addSnippet', () => {
-      explorerProvider.addSnippet();
+      explorerHandler.addSnippet();
     })
   );
 
@@ -91,7 +103,7 @@ export function activate(context: vscode.ExtensionContext) {
     // ADD FOLDER
     //
     vscode.commands.registerCommand('snippetExplorer.addFolder', () => {
-      explorerProvider.addFolder();
+      explorerHandler.addFolder();
     })
   );
 
@@ -100,7 +112,7 @@ export function activate(context: vscode.ExtensionContext) {
     // OPEN CONFIG
     //
     vscode.commands.registerCommand('snippetExplorer.openConfig', () => {
-      explorerProvider.openConfig();
+      explorerHandler.openConfig();
     })
   );
 
@@ -108,34 +120,34 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('workingSnippet.newItem', () => {
-      //workingSnippetProvider.enableEditMode();
-      workingSnippetProvider.newSnippetItem("NEW NEWNEW")
+      //snippetHandler.enableEditMode();
+      snippetHandler.newSnippetItem("NEW NEWNEW")
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('workingSnippet.refresh', () => {
-      // TBD: workingSnippetProvider.clearSnippets();
+      // TBD: snippetHandler.clearSnippets();
     })
   );
 
 
   context.subscriptions.push(
     vscode.commands.registerCommand('workingSnippet.close', () => {
-      workingSnippetProvider.clearSnippets();
+      snippetHandler.clearSnippets();
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('workingSnippet.showSaveDialog', () => {
-      workingSnippetProvider.showSaveDialogToView();
+      snippetHandler.showSaveDialogToView();
     })
   );
 
   // CHECK IF NOT NEEDED - REMOVE IT IF NOT NEEDED
   context.subscriptions.push(
     vscode.commands.registerCommand('workingSnippetView.openFileItem', (data: any) => {
-      workingSnippetProvider.loadSnippetFromJSON(data.error, data.snippets, data.head);
+      snippetHandler.loadSnippetFromJSON(data.error, data.snippets, data.head);
     })
   );
 

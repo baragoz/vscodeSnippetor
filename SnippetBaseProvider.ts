@@ -1,20 +1,25 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
+import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 
 /**
  * Base class for snippet providers with common webview functionality
+ * Isolates all VSCode API calls and delegates webview behavior to handlers
  */
-export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider {
+export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippetorApiProvider {
   protected _view?: vscode.WebviewView;
   protected context: vscode.ExtensionContext;
+  private handler: ISnippetorWebViewHandler;
 
-  constructor(context: vscode.ExtensionContext) {
+  constructor(context: vscode.ExtensionContext, handler: ISnippetorWebViewHandler) {
     this.context = context;
+    this.handler = handler;
   }
 
   /**
-   * Resolve webview view - sets up webview and calls onDidReceiveMessage
+   * Resolve webview view - sets up webview and delegates to handler
    */
   resolveWebviewView(
     view: vscode.WebviewView,
@@ -24,62 +29,28 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
     this._view = view;
     view.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, this.getMediaPath()))]
+      localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, this.handler.getMediaPath()))]
     };
     view.webview.html = this.getHtml(view.webview);
 
     view.webview.onDidReceiveMessage((message) => {
-      this.onDidReceiveMessage(message);
+      this.handler.onDidReceiveMessage(message);
     });
 
     view.onDidChangeVisibility(() => {
       if (view.visible) {
-        this.onVisibilityChanged();
+        this.handler.onDidChangeVisibility();
       }
     });
   }
 
   /**
-   * Override this method to handle messages from the webview
-   */
-  protected onDidReceiveMessage(message: any): void {
-    // Empty implementation - override in derived classes
-  }
-
-  /**
-   * Override this method to handle visibility changes
-   */
-  protected onVisibilityChanged(): void {
-    // Empty implementation - override in derived classes
-  }
-
-  /**
-   * Override this method to return the media path relative to extension path
-   * Default returns 'media'
-   * This is used for localResourceRoots
-   */
-  protected getMediaPath(): string {
-    return 'media';
-  }
-
-  /**
-   * Override this method to return the path where HTML files are located
-   * Default returns the same as getMediaPath()
-   * This allows HTML files to be in a different location (e.g., 'out/media') 
-   * while keeping media resources in 'media'
-   */
-  protected getHtmlPath(): string {
-    return this.getMediaPath();
-  }
-
-  /**
    * Get HTML content for the webview
-   * Override in derived classes if custom HTML loading is needed
    */
-  protected getHtml(webview: vscode.Webview): string {
+  private getHtml(webview: vscode.Webview): string {
     const nonce = this.getNonce();
-    const htmlPath = path.join(this.context.extensionPath, this.getHtmlPath(), this.getHtmlFileName());
-    const imagePath = vscode.Uri.file(path.join(this.context.extensionPath, this.getMediaPath()));
+    const htmlPath = path.join(this.context.extensionPath, this.handler.getHtmlPath(), this.handler.getHtmlFileName());
+    const imagePath = vscode.Uri.file(path.join(this.context.extensionPath, this.handler.getMediaPath()));
     const mediaPath = webview.asWebviewUri(imagePath);
 
     let html = fs.readFileSync(htmlPath, 'utf8');
@@ -89,14 +60,9 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
   }
 
   /**
-   * Override this method to return the HTML file name
-   */
-  protected abstract getHtmlFileName(): string;
-
-  /**
    * Show text document at specified line
    */
-  protected async showTextDocument(fileName: string, startLine: number, endLine?: number): Promise<void> {
+  public async showTextDocument(fileName: string, startLine: number, endLine?: number): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
       this.showErrorMessage('No workspace folder is open.');
@@ -116,7 +82,7 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
   /**
    * Internal method to show text document - can be overridden for testing
    */
-  protected async showTextDocumentInternal(uri: vscode.Uri, options?: vscode.TextDocumentShowOptions): Promise<void> {
+  public async showTextDocumentInternal(uri: vscode.Uri, options?: vscode.TextDocumentShowOptions): Promise<void> {
     await vscode.window.showTextDocument(uri, options);
   }
 
@@ -125,7 +91,7 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
    * @param filePath Absolute file path as a string
    * @param line Line number to position at (0-indexed, defaults to 0 for first line)
    */
-  protected async openFile(filePath: string, line: number = 0): Promise<void> {
+  public async openFile(filePath: string, line: number = 0): Promise<void> {
     const uri = vscode.Uri.file(filePath);
     // Open the document first
     const document = await vscode.workspace.openTextDocument(uri);
@@ -178,7 +144,7 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
     return vscode.window.activeTextEditor;
   }
 
-  protected onDidChangeTextEditorSelection(listener: (e: vscode.TextEditorSelectionChangeEvent) => any): vscode.Disposable {
+  public onDidChangeTextEditorSelection(listener: (e: vscode.TextEditorSelectionChangeEvent) => any): vscode.Disposable {
     return vscode.window.onDidChangeTextEditorSelection(listener);
   }
 
@@ -210,7 +176,7 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
    * Post a message to the webview
    * @param message The message to send to the webview
    */
-  protected postMessage(message: any): void {
+  public postMessage(message: any): void {
     if (this._view) {
       this._view.webview.postMessage(message);
     }
@@ -221,7 +187,7 @@ export abstract class SnippetBaseProvider implements vscode.WebviewViewProvider 
    * @param uri The URI to get the workspace folder for
    * @returns The workspace folder, or undefined if not found
    */
-  protected getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
+  public getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
     return vscode.workspace.getWorkspaceFolder(uri);
   }
 
