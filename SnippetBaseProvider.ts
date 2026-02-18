@@ -20,6 +20,10 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
     handler.setApiProvider(this);
   }
 
+  // ============================================================================
+  // vscode.WebviewViewProvider implementation
+  // ============================================================================
+
   /**
    * Resolve webview view - sets up webview and delegates to handler
    */
@@ -46,20 +50,9 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
     });
   }
 
-  /**
-   * Get HTML content for the webview
-   */
-  private getHtml(webview: vscode.Webview): string {
-    const nonce = this.getNonce();
-    const htmlPath = path.join(this.context.extensionPath, this.handler.getHtmlPath(), this.handler.getHtmlFileName());
-    const imagePath = vscode.Uri.file(path.join(this.context.extensionPath, this.handler.getMediaPath()));
-    const mediaPath = webview.asWebviewUri(imagePath);
-
-    let html = fs.readFileSync(htmlPath, 'utf8');
-    html = html.replace(/{{nonce}}/g, nonce);
-    html = html.replace(/{{media_path}}/g, mediaPath.toString());
-    return html;
-  }
+  // ============================================================================
+  // ISnippetorApiProvider implementation
+  // ============================================================================
 
   /**
    * Show text document at specified line
@@ -105,10 +98,6 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
     });
   }
 
-  // ============================================================================
-  // Wrappers for vscode.window.* methods
-  // ============================================================================
-
   public showInformationMessage(message: string, ...items: string[]): Thenable<string | undefined>;
   public showInformationMessage(message: string, modal: boolean, ...items: string[]): Thenable<string | undefined>;
   public showInformationMessage(message: string, modalOrItem?: boolean | string, ...rest: string[]): Thenable<string | undefined> {
@@ -142,12 +131,58 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
     return vscode.window.showWarningMessage(message, ...allItems);
   }
 
-  protected get activeTextEditor(): vscode.TextEditor | undefined {
-    return vscode.window.activeTextEditor;
+  /**
+   * Post a message to the webview
+   * @param message The message to send to the webview
+   */
+  public postMessage(message: any): void {
+    if (this._view) {
+      this._view.webview.postMessage(message);
+    }
+  }
+
+  /**
+   * Get the workspace folder for a given URI
+   * @param uri The URI to get the workspace folder for
+   * @returns The workspace folder, or undefined if not found
+   */
+  public getWorkspaceFolder(uri: vscode.Uri): string | undefined {
+    return vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath;
   }
 
   public onDidChangeTextEditorSelection(listener: (e: vscode.TextEditorSelectionChangeEvent) => any): vscode.Disposable {
     return vscode.window.onDidChangeTextEditorSelection(listener);
+  }
+
+  public getWorkspaceState<T>(key: string, defaultValue: T): T {
+    return this.context.workspaceState.get<T>(key, defaultValue);
+  }
+
+  public setWorkspaceState(key: string, value: any): void {
+    this.context.workspaceState.update(key, value);
+  }
+
+  // ============================================================================
+  // Helper methods
+  // ============================================================================
+
+  /**
+   * Get HTML content for the webview
+   */
+  private getHtml(webview: vscode.Webview): string {
+    const nonce = this.getNonce();
+    const htmlPath = path.join(this.context.extensionPath, this.handler.getHtmlPath(), this.handler.getHtmlFileName());
+    const imagePath = vscode.Uri.file(path.join(this.context.extensionPath, this.handler.getMediaPath()));
+    const mediaPath = webview.asWebviewUri(imagePath);
+
+    let html = fs.readFileSync(htmlPath, 'utf8');
+    html = html.replace(/{{nonce}}/g, nonce);
+    html = html.replace(/{{media_path}}/g, mediaPath.toString());
+    return html;
+  }
+
+  protected get activeTextEditor(): vscode.TextEditor | undefined {
+    return vscode.window.activeTextEditor;
   }
 
   protected registerWebviewViewProvider(viewType: string, provider: vscode.WebviewViewProvider): vscode.Disposable {
@@ -172,33 +207,6 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
 
   protected showSaveDialog(options?: vscode.SaveDialogOptions): Thenable<vscode.Uri | undefined> {
     return vscode.window.showSaveDialog(options);
-  }
-
-  /**
-   * Post a message to the webview
-   * @param message The message to send to the webview
-   */
-  public postMessage(message: any): void {
-    if (this._view) {
-      this._view.webview.postMessage(message);
-    }
-  }
-
-  /**
-   * Get the workspace folder for a given URI
-   * @param uri The URI to get the workspace folder for
-   * @returns The workspace folder, or undefined if not found
-   */
-  public getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined {
-    return vscode.workspace.getWorkspaceFolder(uri);
-  }
-
-  public getWorkspaceState<T>(key: string, defaultValue: T): T {
-    return this.context.workspaceState.get<T>(key, defaultValue);
-  }
-
-  public setWorkspaceState(key: string, value: any): void {
-    this.context.workspaceState.update(key, value);
   }
 
   protected getNonce(): string {

@@ -1,8 +1,4 @@
-import * as fs from 'fs';
-import * as vscode from 'vscode';
-import * as path from 'path';
-import * as os from 'os';
-import { SnippetExplorerListener } from './SnippetExplorerProvider';
+import { SnippetExplorerListener } from './SnippetExplorerHandler';
 import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
@@ -74,9 +70,9 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         console.log("Selected line: ", line, " in file: ", fullPath);
         const workspaceFolder = this.apiProvider.getWorkspaceFolder(document.uri);
         const relativePath = workspaceFolder 
-            ? path.relative(workspaceFolder.uri.fsPath, fullPath) 
+            ? this.fsWrapper.computeRelativePath(workspaceFolder, fullPath) 
             : fullPath;
-        const fileName = path.basename(relativePath);
+        const fileName = this.fsWrapper.getBasenameFromAbsolute(relativePath);
         const snippetLine = `${fileName}:${line}`;
 
         this.cachedFilePath = relativePath;
@@ -340,8 +336,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         // Copy snippets list from saved data in file
         this.snippetList = snippetList;
         // Store full path: convert relative path (like /Drafts/file.snippet) to full path
-        const rootPath = path.join(os.homedir(), '.vscode', 'archsnippets');
-        this.currentSnippetFullPath = head.path ? path.join(rootPath, head.path.substring(1)) : '';
+        this.currentSnippetFullPath = head.path ? this.fsWrapper.relativePathWithSlashToAbsolute(head.path) : '';
         
         // Update the listener's active file
         if (this.listenerHelper) {
@@ -447,8 +442,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
    */
   public sendActiveFileUpdate(action: string, newFileName: string): void {
     if (this.currentSnippetFullPath !== '') {
-      const rootPath = path.join(os.homedir(), '.vscode', 'archsnippets');
-      const newRelativePath = '/' + path.relative(rootPath, newFileName);
+      const newRelativePath = this.fsWrapper.absoluteToRelativePathWithSlash(newFileName);
       
       // Update both original and proposal paths
       this.snippetHead.path = newRelativePath;
@@ -456,7 +450,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
       this.currentSnippetFullPath = newFileName;
       
       this.refresh();
-      this.apiProvider.showInformationMessage(`Snippet ${action}: ${path.basename(newFileName)}`);
+      this.apiProvider.showInformationMessage(`Snippet ${action}: ${this.fsWrapper.getBasename(newFileName)}`);
     }
   }
 
@@ -551,10 +545,12 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
  */
 class SnippetExplorerListenerHelper implements SnippetExplorerListener {
   private handler: SnippetViewHandler;
+  private fsWrapper: SnippetorFilesystemsWrapper;
   private activeFile: string = '';
 
   constructor(handler: SnippetViewHandler) {
     this.handler = handler;
+    this.fsWrapper = handler.getFsWrapper();
   }
 
   /**
@@ -576,15 +572,14 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
    */
   private isActiveFile(fullPath: string): boolean {
     return this.activeFile !== '' && 
-           path.normalize(this.activeFile) === path.normalize(fullPath);
+           this.fsWrapper.normalize(this.activeFile) === this.fsWrapper.normalize(fullPath);
   }
 
   onNodeRenamed(oldNode: string, newNode: string, isFolder: boolean): void {
     if (isFolder) {
       // Folder renamed - check if active file is inside this folder
-      if (this.activeFile && this.activeFile.startsWith(oldNode + path.sep)) {
-        const relativePath = path.relative(oldNode, this.activeFile);
-        const newFile = path.join(newNode, relativePath);
+      if (this.activeFile && this.activeFile.startsWith(oldNode + this.fsWrapper.pathSep)) {
+        const newFile = this.fsWrapper.movePathRelativeTo(oldNode, this.activeFile, newNode);
         this.activeFile = newFile;
         this.handler.sendActiveFileUpdate('moved (folder renamed)', newFile);
       }
@@ -600,9 +595,8 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
   onNodeMoved(oldNode: string, newNode: string, isFolder: boolean): void {
     if (isFolder) {
       // Folder moved - check if active file is inside this folder
-      if (this.activeFile && this.activeFile.startsWith(oldNode + path.sep)) {
-        const relativePath = path.relative(oldNode, this.activeFile);
-        const newFile = path.join(newNode, relativePath);
+      if (this.activeFile && this.activeFile.startsWith(oldNode + this.fsWrapper.pathSep)) {
+        const newFile = this.fsWrapper.movePathRelativeTo(oldNode, this.activeFile, newNode);
         this.activeFile = newFile;
         this.handler.sendActiveFileUpdate('moved (folder moved)', newFile);
       }
@@ -620,15 +614,15 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
       return;
     }
 
-    const normalizedNode = path.normalize(node);
-    const normalizedActiveFile = path.normalize(this.activeFile);
+    const normalizedNode = this.fsWrapper.normalize(node);
+    const normalizedActiveFile = this.fsWrapper.normalize(this.activeFile);
 
     if (isFolder) {
       // Folder removed - check if it's a parent of the snippet path
-      const folderWithSep = normalizedNode + path.sep;
+      const folderWithSep = normalizedNode + this.fsWrapper.pathSep;
       if (normalizedActiveFile.startsWith(folderWithSep)) {
-        const removedFolderName = path.basename(normalizedNode);
-        const activeFileName = path.basename(normalizedActiveFile);
+        const removedFolderName = this.fsWrapper.getBasename(normalizedNode);
+        const activeFileName = this.fsWrapper.getBasename(normalizedActiveFile);
         
         // Access apiProvider through handler - need to expose it or add helper methods
         // For now, we'll need to add a method to handler to show warning
@@ -642,7 +636,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
     } else {
       // File removed - check if it's the active file itself
       if (normalizedNode === normalizedActiveFile) {
-        this.handler.showWarningMessage(`Snippet file was removed: ${path.basename(node)}`);
+        this.handler.showWarningMessage(`Snippet file was removed: ${this.fsWrapper.getBasename(node)}`);
         this.activeFile = '';
         this.handler.closeSnippet();
       }
@@ -664,17 +658,19 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
         return;
       }
 
-      const normalizedFolder = path.normalize(node);
-      const normalizedActiveFile = path.normalize(this.activeFile);
-      const folderWithSep = normalizedFolder + path.sep;
+      const normalizedFolder = this.fsWrapper.normalize(node);
+      const normalizedActiveFile = this.fsWrapper.normalize(this.activeFile);
+      const folderWithSep = normalizedFolder + this.fsWrapper.pathSep;
 
       if (normalizedActiveFile.startsWith(folderWithSep)) {
         // The snippet file path contains the overwritten folder
         // Check if the snippet file still exists after the overwrite
         const activeFilePath = this.activeFile;
-        if (fs.existsSync(activeFilePath)) {
+        // Convert absolute path to relative path for the wrapper
+        const relativePath = this.fsWrapper.toRelativePath(activeFilePath);
+        if (this.fsWrapper.exists(relativePath)) {
           // File still exists, propose to reload
-          const fileName = path.basename(activeFilePath);
+          const fileName = this.fsWrapper.getBasename(activeFilePath);
           this.handler.showWarningMessage(
             `Folder containing snippet file "${fileName}" was overwritten. Do you want to reload the snippet?`,
             true,
@@ -683,8 +679,6 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
           ).then(result => {
             if (result === 'Reload') {
               // Reload the snippet from file
-              // Convert absolute path to relative path
-              const relativePath = this.handler.getFsWrapper().toRelativePath(activeFilePath);
               const { error, snippets, head } = this.handler.readSnippetFromFileItem(relativePath);
               this.handler.loadSnippetFromJSON(error, snippets, head);
               this.handler.showInformationMessage(`Snippet reloaded: ${fileName}`);
@@ -692,7 +686,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
           });
         } else {
           // File doesn't exist anymore, close snippet
-          const activeFileName = path.basename(normalizedActiveFile);
+          const activeFileName = this.fsWrapper.getBasename(normalizedActiveFile);
           this.handler.showWarningMessage(
             `Snippet file "${activeFileName}" no longer exists after folder overwrite.`
           );
@@ -703,7 +697,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
     } else {
       // File overwritten - check if it's the active snippet
       if (this.isActiveFile(node)) {
-        const fileName = path.basename(node);
+        const fileName = this.fsWrapper.getBasename(node);
         
         // Show dialog to propose reload (fire and forget - don't block)
         this.handler.showWarningMessage(
@@ -715,7 +709,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
           if (result === 'Reload') {
             // Reload the snippet from file
             // Convert absolute path to relative path
-            const relativePath = this.handler.getFsWrapper().toRelativePath(node);
+            const relativePath = this.fsWrapper.toRelativePath(node);
             const { error, snippets, head } = this.handler.readSnippetFromFileItem(relativePath);
             this.handler.loadSnippetFromJSON(error, snippets, head);
             this.handler.showInformationMessage(`Snippet reloaded: ${fileName}`);

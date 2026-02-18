@@ -44,9 +44,9 @@ export interface ISnippetorApiProvider {
   postMessage(message: any): void;
 
   /**
-   * Get the workspace folder for a given URI
+   * Get the workspace folder path for a given URI
    */
-  getWorkspaceFolder(uri: vscode.Uri): vscode.WorkspaceFolder | undefined;
+  getWorkspaceFolder(uri: vscode.Uri): string | undefined;
 
   /**
    * Register a listener for text editor selection changes

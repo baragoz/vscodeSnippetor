@@ -422,6 +422,90 @@ export class SnippetorFilesystemsWrapper {
   }
 
   /**
+   * Get root path (absolute path to .vscode/archsnippets)
+   */
+  public getRootPath(): string {
+    return this.rootPath;
+  }
+
+  /**
+   * Compute relative path from one absolute path to another
+   * General utility method for path operations (not specific to snippet paths)
+   */
+  public computeRelativePath(from: string, to: string): string {
+    return path.relative(from, to);
+  }
+
+  /**
+   * Get basename from absolute path
+   * General utility method for path operations (not specific to snippet paths)
+   */
+  public getBasenameFromAbsolute(absolutePath: string): string {
+    return path.basename(absolutePath);
+  }
+
+  /**
+   * Normalize a path (general utility, works with any path)
+   */
+  public normalize(pathInput: string): string {
+    return path.normalize(pathInput);
+  }
+
+  /**
+   * Get basename from any path (general utility, works with any path)
+   */
+  public getBasename(pathInput: string): string {
+    return path.basename(pathInput);
+  }
+
+  /**
+   * Get path separator (platform-specific: '/' on Unix, '\' on Windows)
+   */
+  public get pathSep(): string {
+    return path.sep;
+  }
+
+  /**
+   * Move a file path from being relative to one base path to being relative to another base path
+   * This is useful when a folder is renamed or moved and we need to update paths of files inside it
+   * @param oldBase The old base path (e.g., old folder path)
+   * @param filePath The file path that was relative to oldBase
+   * @param newBase The new base path (e.g., new folder path)
+   * @returns The file path relative to newBase
+   */
+  public movePathRelativeTo(oldBase: string, filePath: string, newBase: string): string {
+    const relativePath = path.relative(oldBase, filePath);
+    return path.join(newBase, relativePath);
+  }
+
+  /**
+   * Convert relative path with leading slash (e.g., "/Drafts/file.snippet") to absolute path
+   * This is used when loading snippets from JSON where paths are stored with leading slash
+   */
+  public relativePathWithSlashToAbsolute(relativePathWithSlash: string): string {
+    if (!relativePathWithSlash) {
+      return '';
+    }
+    // Remove leading slash and convert to absolute
+    const relativePath = relativePathWithSlash.startsWith('/') 
+      ? relativePathWithSlash.substring(1) 
+      : relativePathWithSlash;
+    return path.join(this.rootPath, relativePath);
+  }
+
+  /**
+   * Convert absolute path to relative path with leading slash (e.g., "/Drafts/file.snippet")
+   * This format is used when storing paths in snippet JSON files
+   */
+  public absoluteToRelativePathWithSlash(absolutePath: string): string {
+    if (!absolutePath) {
+      return '';
+    }
+    const relative = path.relative(this.rootPath, absolutePath);
+    return '/' + relative.replace(/\\/g, '/');
+  }
+
+  /**
    * Get autocomplete for a relative path
    */
   public getAutoCompletion(relativePath: string): {
