@@ -142,6 +142,7 @@
   "scripts": {
     "build:explorer": "node scripts/build-explorer-view.js",
     "compile": "npm run build:explorer && tsc -p ./",
+    "compile:test": "tsc -p ./tsconfig.test.json",
     "vscode:prepublish": "npm run compile"
   },
   "resources": [

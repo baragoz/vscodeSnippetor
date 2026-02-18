@@ -14,24 +14,19 @@ export function activate(context: vscode.ExtensionContext) {
   const explorerHandler = new SnippetExplorerHandler(fsWrapper);
   const snippetHandler = new SnippetViewHandler(explorerHandler, fsWrapper);
 
-  // Create base providers with handlers (this automatically calls setApiProvider on handlers)
-  const explorerProvider = new SnippetBaseProvider(context, explorerHandler);
-  const workingSnippetProvider = new SnippetBaseProvider(context, snippetHandler);
-
   // Set explorer reference on snippet handler (now that both are created)
   snippetHandler.setExplorer(explorerHandler);
-
-  // Register with VSCode
-  vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
-  vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
 
   // Set listener for file operations in explorer handler
   explorerHandler.setListener(snippetHandler.getExplorerListener());
 
-  // Webview for UML Diagrams
-  //const umlProvider = new UMLViewProvider(context);
-  // vscode.window.registerWebviewViewProvider('umlDiagramView', umlProvider);
+  // Create base providers with handlers (this automatically calls setApiProvider on handlers)
+  const explorerProvider = new SnippetBaseProvider(context, explorerHandler);
+  const workingSnippetProvider = new SnippetBaseProvider(context, snippetHandler);
 
+  // Register with VSCode
+  vscode.window.registerWebviewViewProvider('snippetExplorerView', explorerProvider);
+  vscode.window.registerWebviewViewProvider('workingSnippetView', workingSnippetProvider);
 
   // TODO:CHECK why it is snippet view instead of explorer view?
   context.subscriptions.push(
