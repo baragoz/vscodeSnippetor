@@ -4,8 +4,6 @@ import { SnippetExplorerHandler } from './SnippetExplorerHandler';
 import { SnippetBaseProvider } from './SnippetBaseProvider';
 import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 
-
-
 export function activate(context: vscode.ExtensionContext) {
   // Create a single filesystem wrapper instance
   const fsWrapper = new SnippetorFilesystemsWrapper();

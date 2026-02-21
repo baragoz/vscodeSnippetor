@@ -111,11 +111,11 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   }
 
   getMediaPath(): string {
-    return 'media';
+    return 'out/extension/media';
   }
 
   getHtmlPath(): string {
-    return 'media';
+    return 'out/extension/media';
   }
 
   async onDidReceiveMessage(message: any): Promise<void> {

@@ -1,7 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "lib": ["ES2020", "DOM"]
+    "lib": ["ES2020", "DOM"],
+    "outDir": "./out/test/js/extension",
+    "rootDir": "./src"
   },
-  "include": ["src/test/**/*.ts", "src/**/*.ts"]
+  "include": ["src/test/**/*.ts", "src/**/*.ts"],
+  "exclude": ["src/SnippetBaseProvider.ts", "src/SnippetorFilesystemsWrapper.ts"]
 }

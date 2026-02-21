@@ -3,14 +3,14 @@
   "displayName": "SW Architecture Snippets",
   "publisher": "Snippetor",
   "description": "Extension to manage software architecture snippets with explorer view and snippet capture",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "engines": {
     "vscode": "^1.80.0"
   },
   "activationEvents": [
     "onStartupFinished"
   ],
-  "main": "./out/extension.js",
+  "main": "./out/extension/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -141,23 +141,23 @@
   },
   "scripts": {
     "build:explorer": "node scripts/build-explorer-view.js",
-    "compile": "npm run build:explorer && tsc -p ./",
-    "compile:test": "tsc -p ./tsconfig.test.json",
+    "build:test-page": "node scripts/build-test-page.js",
+    "build:bundle": "node scripts/build-bundle.js",
+    "compile": "npm run build:explorer && npm run build:bundle",
+    "compile:test": "tsc -p ./tsconfig.test.json && npm run build:test-page",
     "vscode:prepublish": "npm run compile"
   },
   "resources": [
-    "media/snippetView.html",
-    "media/explorerView.html",
-    "media/dark_new_item.jpg",
-    "media/dark_no_content.jpg",
-    "media/dark_wrong_format.jpg",
-    "media/light_new_item.jpg",
-    "media/light_no_content.jpg",
-    "media/light_wrong_format.jpg"
+    "out/extension/media/snippetView.html",
+    "out/extension/media/explorerView.html",
+    "out/extension/media/images/light_empty.png",
+    "out/extension/media/images/light_error.png",
+    "out/extension/media/images/light_plus.png"
   ],
   "devDependencies": {
     "@types/node": "^24.0.3",
     "@types/vscode": "^1.80.0",
+    "esbuild": "^0.19.0",
     "typescript": "^5.0.0"
   }
 }

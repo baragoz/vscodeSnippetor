@@ -4,9 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <title>Snippet Tree Explorer</title>
-    <style>
-        {{CSS}}
-    </style>
+    {{CSS_IMPORTS}}
 </head>
 
 <body>
@@ -16,7 +14,11 @@
 
     <script>
         window.isDebug = true;
-        {{JS}}
+    </script>
+    {{JS_IMPORTS}}
+    {{TEST_JS_IMPORT}}
+    <script>
+        Snippetor.activate();
     </script>
 </body>
 

@@ -48,12 +48,12 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
   }
 
   getMediaPath(): string {
-    return 'media';
+    return 'out/extension/media';
   }
 
   getHtmlPath(): string {
-    // Use 'out/media' for HTML file while keeping 'media' for localResourceRoots
-    return 'out/media';
+    // Use 'out/extension/media' for HTML file
+    return 'out/extension/media';
   }
 
   async onDidReceiveMessage(message: any): Promise<void> {
