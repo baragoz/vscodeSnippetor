@@ -140,9 +140,7 @@ class NodeItem {
         span.ondblclick = () => {
             this.treeView.selectItem(this);
             if (!this.isFolder) {
-                this.treeView.contextMenuHandler.messageManager.sendMessage('openFile', {
-                    path: this.fullPath
-                });
+                this.treeView.commandHandler.openFile( this.fullPath );
             } else {
                 span.focus();
             }

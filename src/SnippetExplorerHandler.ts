@@ -6,7 +6,7 @@ import {
   MoveCopyCommandParams,
   RemoveCommandParams
 } from './SnippetExplorerCommandHandler';
-import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
+import { ISnippetorFilesystemWrapper } from './ISnippetorFilesystemWrapper';
 import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 
@@ -22,12 +22,12 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
   public static readonly viewType = 'snippetExplorer.webview';
   private listener?: SnippetExplorerListener;
   private readonly treeStateKey = 'snippetExplorer.treeState';
-  private fsWrapper: SnippetorFilesystemsWrapper;
+  private fsWrapper: ISnippetorFilesystemWrapper;
   // API provider for VSCode operations (set via setApiProvider)
   private apiProvider!: ISnippetorApiProvider;
 
   constructor(
-    fsWrapper: SnippetorFilesystemsWrapper
+    fsWrapper: ISnippetorFilesystemWrapper
   ) {
     this.fsWrapper = fsWrapper;
   }
@@ -380,7 +380,7 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
   /**
    * Get the filesystem wrapper for accessing filesystem operations
    */
-  public getFsWrapper(): SnippetorFilesystemsWrapper {
+  public getFsWrapper(): ISnippetorFilesystemWrapper {
     return this.fsWrapper;
   }
 

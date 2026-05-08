@@ -1,7 +1,7 @@
 import { SnippetExplorerListener } from './SnippetExplorerHandler';
 import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
-import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
+import { ISnippetorFilesystemWrapper } from './ISnippetorFilesystemWrapper';
 
 function generateUID(): string {
   return 'uid-' + Math.random().toString(36).substring(2, 10);
@@ -32,7 +32,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   // ref to the explorer handler (will be set after creation)
   private explorer: any; // SnippetExplorerHandler - using any to avoid circular dependency
   // Filesystem wrapper instance
-  private fsWrapper: SnippetorFilesystemsWrapper;
+  private fsWrapper: ISnippetorFilesystemWrapper;
   // Full path of currently open snippet file (absolute path)
   private currentSnippetFullPath: string = '';
   // Listener helper instance
@@ -42,7 +42,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
 
   constructor(
     explorer: any, // SnippetExplorerHandler - using any to avoid circular dependency
-    fsWrapper: SnippetorFilesystemsWrapper
+    fsWrapper: ISnippetorFilesystemWrapper
   ) {
     this.explorer = explorer;
     this.fsWrapper = fsWrapper;
@@ -534,7 +534,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   /**
    * Get filesystem wrapper (for listener helper)
    */
-  public getFsWrapper(): SnippetorFilesystemsWrapper {
+  public getFsWrapper(): ISnippetorFilesystemWrapper {
     return this.fsWrapper;
   }
 }
@@ -545,7 +545,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
  */
 class SnippetExplorerListenerHelper implements SnippetExplorerListener {
   private handler: SnippetViewHandler;
-  private fsWrapper: SnippetorFilesystemsWrapper;
+  private fsWrapper: ISnippetorFilesystemWrapper;
   private activeFile: string = '';
 
   constructor(handler: SnippetViewHandler) {

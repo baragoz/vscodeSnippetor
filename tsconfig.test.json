@@ -6,5 +6,5 @@
     "rootDir": "./src"
   },
   "include": ["src/test/**/*.ts", "src/**/*.ts"],
-  "exclude": ["src/SnippetBaseProvider.ts", "src/SnippetorFilesystemsWrapper.ts"]
+  "exclude": ["src/SnippetBaseProvider.ts", "src/SnippetorFilesystemsWrapper.ts", "src/extension.ts"]
 }

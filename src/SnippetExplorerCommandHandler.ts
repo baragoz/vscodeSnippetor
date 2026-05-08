@@ -1,6 +1,6 @@
 // File: SnippetExplorerCommandHandler.ts
 import { SnippetExplorerListener } from './SnippetExplorerHandler';
-import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
+import { ISnippetorFilesystemWrapper } from './ISnippetorFilesystemWrapper';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 
 /**
@@ -52,13 +52,13 @@ export type CommandParams = MoveCopyCommandParams | RemoveCommandParams;
  * Base class for command handlers with common functionality
  */
 export abstract class BaseCommandHandler implements ICommandHandler {
-  protected fsWrapper: SnippetorFilesystemsWrapper;
+  protected fsWrapper: ISnippetorFilesystemWrapper;
   protected listener?: SnippetExplorerListener;
   protected sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void;
   protected apiProvider: ISnippetorApiProvider;
 
   constructor(
-    fsWrapper: SnippetorFilesystemsWrapper,
+    fsWrapper: ISnippetorFilesystemWrapper,
     listener: SnippetExplorerListener | undefined,
     sendCallback: (success: boolean, error: string, callbackId: string, data?: any) => void,
     apiProvider: ISnippetorApiProvider

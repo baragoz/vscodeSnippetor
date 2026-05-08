@@ -2,16 +2,17 @@
 // Mock FilesystemWrapper that keeps all files in cache and gets config as JSON in constructor
 // No vscode, path, os or fs dependencies
 
-interface SnippetMapping {
-  folder: string;
-  mapping: string;
-}
+import {
+  ISnippetorFilesystemWrapper,
+  SnippetMapping,
+  ConfigLoadResult,
+  DirectoryEntry,
+  AutocompleteResult,
+  FileStats
+} from '../ISnippetorFilesystemWrapper';
 
-export interface ConfigLoadResult {
-  folders: SnippetMapping[];
-  isValid: boolean;
-  error?: string;
-}
+// Re-export types for backward compatibility
+export type { ConfigLoadResult };
 
 interface FileEntry {
   content: string | Buffer;
@@ -19,20 +20,12 @@ interface FileEntry {
   encoding?: BufferEncoding;
 }
 
-interface MockStats {
-  isDirectory(): boolean;
-  isFile(): boolean;
-  size: number;
-  mtime: Date;
-  ctime: Date;
-}
-
 /**
  * Mock wrapper class that handles all filesystem operations in memory.
  * Converts between relative paths (used by providers) and absolute paths (used by filesystem).
  * All files are kept in cache - no real filesystem operations.
  */
-export class MockFilesystemWrapper {
+export class MockFilesystemWrapper implements ISnippetorFilesystemWrapper {
   private rootPath: string;
   private configPath: string;
   private folders: SnippetMapping[] = [];
@@ -292,7 +285,7 @@ export class MockFilesystemWrapper {
   /**
    * Get root children (relative paths)
    */
-  public getRootChildren(): {name: string; fullPath: string; isFolder: boolean}[] {
+  public getRootChildren(): DirectoryEntry[] {
     return this.folders
         .filter(entry => this.fileCache.has(entry.mapping))
         .map(entry => ({
@@ -306,7 +299,7 @@ export class MockFilesystemWrapper {
   /**
    * Read directory contents (returns relative paths)
    */
-  public readDirectory(relativePath: string): {name: string; fullPath: string; isFolder: boolean}[] {
+  public readDirectory(relativePath: string): DirectoryEntry[] {
     const absolutePath = this.toAbsolutePath(relativePath);
     
     if (!this.fileCache.has(absolutePath)) {
@@ -371,7 +364,7 @@ export class MockFilesystemWrapper {
   /**
    * Get file stats
    */
-  public stat(relativePath: string): MockStats {
+  public stat(relativePath: string): FileStats {
     const absolutePath = this.toAbsolutePath(relativePath);
     const entry = this.fileCache.get(absolutePath);
     
@@ -728,11 +721,7 @@ export class MockFilesystemWrapper {
   /**
    * Get autocomplete for a relative path
    */
-  public getAutoCompletion(relativePath: string): {
-    path: string,
-    error: string,
-    autocomplete: {name: string; isDirectory: boolean}[]
-  } {
+  public getAutoCompletion(relativePath: string): AutocompleteResult {
     // Normalize the input path - remove leading/trailing slashes and whitespace
     const normalizedInput = relativePath.trim().replace(/^\/+|\/+$/g, '');
     

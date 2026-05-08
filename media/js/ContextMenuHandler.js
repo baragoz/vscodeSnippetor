@@ -21,7 +21,7 @@ class ContextMenuHandler {
 
         if (!node.isFolder) {
             this.addMenuItem(menu, 'Open', () => {
-                this.commandHandler.messageManager.sendMessage('openFile', { path: node.fullPath });
+                this.commandHandler.openFile( node.fullPath );
             });
             this.addMenuItem(menu, 'Open as text', () => {
                 this.commandHandler.messageManager.sendMessage('openText', { path: node.fullPath });

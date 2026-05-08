@@ -218,6 +218,11 @@ class TreeCommandHandler {
         }
     }
 
+    openFile(path) {
+        console.log("Opening file: ", path);
+        this.messageManager.sendMessage('openFile', { path });
+    }
+
     executePasteCommand(command, sourcePath, isMovingFolder, targetPath, overwrite) {
         const tmp = sourcePath.split("/");
         const name = tmp[tmp.length - 1];

@@ -6,7 +6,6 @@ import { SnippetViewHandler } from '../SnippetViewHandler';
 import { SnippetExplorerHandler } from '../SnippetExplorerHandler';
 import { MockSnippetBaseProvider } from './MockSnippetBaseProvider';
 import { MockFilesystemWrapper, ConfigLoadResult } from './MockFilesystemWrapper';
-import { SnippetorFilesystemsWrapper } from '../SnippetorFilesystemsWrapper';
 
 /**
  * Test configuration for initializing the mock filesystem
@@ -49,9 +48,8 @@ export class Snippetor {
     this.fsWrapper = new MockFilesystemWrapper(folders);
 
     // Create handlers first (API providers will be set automatically by base providers)
-    // Use type assertion since MockFilesystemWrapper implements the same interface
-    this.explorerHandler = new SnippetExplorerHandler(this.fsWrapper as any as SnippetorFilesystemsWrapper);
-    this.snippetHandler = new SnippetViewHandler(this.explorerHandler, this.fsWrapper as any as SnippetorFilesystemsWrapper);
+    this.explorerHandler = new SnippetExplorerHandler(this.fsWrapper);
+    this.snippetHandler = new SnippetViewHandler(this.explorerHandler, this.fsWrapper);
 
     // Set explorer reference on snippet handler (now that both are created)
     this.snippetHandler.setExplorer(this.explorerHandler);

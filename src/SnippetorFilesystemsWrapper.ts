@@ -2,23 +2,22 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import {
+  ISnippetorFilesystemWrapper,
+  SnippetMapping,
+  ConfigLoadResult,
+  DirectoryEntry,
+  AutocompleteResult
+} from './ISnippetorFilesystemWrapper';
 
-interface SnippetMapping {
-  folder: string;
-  mapping: string;
-}
-
-export interface ConfigLoadResult {
-  folders: SnippetMapping[];
-  isValid: boolean;
-  error?: string;
-}
+// Re-export types for backward compatibility
+export type { ConfigLoadResult, SnippetMapping };
 
 /**
  * Wrapper class that handles all filesystem operations and config management.
  * Converts between relative paths (used by providers) and absolute paths (used by filesystem).
  */
-export class SnippetorFilesystemsWrapper {
+export class SnippetorFilesystemsWrapper implements ISnippetorFilesystemWrapper {
   private rootPath: string;
   private configPath: string;
   private folders: SnippetMapping[] = [];
@@ -236,7 +235,7 @@ export class SnippetorFilesystemsWrapper {
   /**
    * Get root children (relative paths)
    */
-  public getRootChildren(): {name: string; fullPath: string; isFolder: boolean}[] {
+  public getRootChildren(): DirectoryEntry[] {
     return this.folders
         .filter(entry => fs.existsSync(entry.mapping))
         .map(entry => ({
@@ -250,7 +249,7 @@ export class SnippetorFilesystemsWrapper {
   /**
    * Read directory contents (returns relative paths)
    */
-  public readDirectory(relativePath: string): {name: string; fullPath: string; isFolder: boolean}[] {
+  public readDirectory(relativePath: string): DirectoryEntry[] {
     const absolutePath = this.toAbsolutePath(relativePath);
     
     if (!fs.existsSync(absolutePath)) {
@@ -508,11 +507,7 @@ export class SnippetorFilesystemsWrapper {
   /**
    * Get autocomplete for a relative path
    */
-  public getAutoCompletion(relativePath: string): {
-    path: string,
-    error: string,
-    autocomplete: {name: string; isDirectory: boolean}[]
-  } {
+  public getAutoCompletion(relativePath: string): AutocompleteResult {
     // Normalize the input path - remove leading/trailing slashes and whitespace
     const normalizedInput = relativePath.trim().replace(/^\/+|\/+$/g, '');
     
