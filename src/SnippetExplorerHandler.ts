@@ -65,47 +65,34 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           break;
         }
         case 'expand': {
-          // message.path might be absolute or relative - convert to relative
-          const relativePath = this.convertToRelativePath(message.path);
-          const children = this.readDirectory(relativePath);
+          const children = this.readDirectory(this.toMappedPath(message.path));
           this.sendCallback(true, '', message.callbackId, children);
           break;
         }
         case 'rename': {
-          // message.oldPath might be absolute or relative - convert to relative
-          const oldRelativePath = this.convertToRelativePath(message.oldPath);
-          const oldAbsolutePath = this.fsWrapper.toAbsolutePath(oldRelativePath);
-          const parentDir = this.fsWrapper.dirname(oldRelativePath);
-          const newRelativePath = parentDir ? `${parentDir}/${message.newName}` : message.newName;
-          
+          const oldMappedPath = this.toMappedPath(message.oldPath);
+          const parentDir = this.fsWrapper.dirname(oldMappedPath);
+          const newMappedPath = `${parentDir}/${message.newName}`;
           try {
-            const isDir = this.fsWrapper.stat(oldRelativePath).isDirectory();
-            this.fsWrapper.rename(oldRelativePath, newRelativePath);
-            
-            // Notify listener with absolute paths (for compatibility)
+            const isDir = this.fsWrapper.stat(oldMappedPath).isDirectory();
+            this.fsWrapper.rename(oldMappedPath, newMappedPath);
             if (this.listener) {
-              const newAbsolutePath = this.fsWrapper.toAbsolutePath(newRelativePath);
-              this.listener.onNodeRenamed(oldAbsolutePath, newAbsolutePath, isDir);
+              this.listener.onNodeRenamed(oldMappedPath, newMappedPath, isDir);
             }
             this.sendCallback(true, '', message.callbackId, {});
           } catch (err: any) {
             this.apiProvider.showErrorMessage(`Rename failed: ${err.message}`);
-            this.sendCallback(
-                false, `Rename failed: ${err.message}`, message.callbackId, {});
+            this.sendCallback(false, `Rename failed: ${err.message}`, message.callbackId, {});
           }
           break;
         }
         case 'move': {
-          // message.sourcePath and message.targetPath might be absolute or relative - convert to relative
           const handler = new MoveCommandHandler(
-            this.fsWrapper,
-            this.listener,
-            this.sendCallback.bind(this),
-            this.apiProvider
+            this.fsWrapper, this.listener, this.sendCallback.bind(this), this.apiProvider
           );
           const params: MoveCopyCommandParams = {
-            sourcePath: this.convertToRelativePath(message.sourcePath),
-            targetPath: this.convertToRelativePath(message.targetPath),
+            sourcePath: this.toMappedPath(message.sourcePath),
+            targetPath: this.toMappedPath(message.targetPath),
             isFolder: message.isFolder,
             overwrite: message.overwrite || false,
             callbackId: message.callbackId,
@@ -118,16 +105,12 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           break;
         }
         case 'copy': {
-          // message.sourcePath and message.targetPath might be absolute or relative - convert to relative
           const handler = new CopyCommandHandler(
-            this.fsWrapper,
-            this.listener,
-            this.sendCallback.bind(this),
-            this.apiProvider
+            this.fsWrapper, this.listener, this.sendCallback.bind(this), this.apiProvider
           );
           const params: MoveCopyCommandParams = {
-            sourcePath: this.convertToRelativePath(message.sourcePath),
-            targetPath: this.convertToRelativePath(message.targetPath),
+            sourcePath: this.toMappedPath(message.sourcePath),
+            targetPath: this.toMappedPath(message.targetPath),
             isFolder: message.isFolder,
             overwrite: message.overwrite || false,
             callbackId: message.callbackId,
@@ -140,21 +123,15 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           break;
         }
         case 'checkDestination': {
-          // message.destinationPath might be absolute or relative - convert to relative
-          this.checkDestination(
-              this.convertToRelativePath(message.destinationPath), message.callbackId);
+          this.checkDestination(this.toMappedPath(message.destinationPath), message.callbackId);
           break;
         }
         case 'remove': {
-          // message.fullPath might be absolute or relative - convert to relative
           const handler = new RemoveCommandHandler(
-            this.fsWrapper,
-            this.listener,
-            this.sendCallback.bind(this),
-            this.apiProvider
+            this.fsWrapper, this.listener, this.sendCallback.bind(this), this.apiProvider
           );
           const params: RemoveCommandParams = {
-            fullPath: this.convertToRelativePath(message.fullPath),
+            fullPath: this.toMappedPath(message.fullPath),
             name: message.name,
             isFolder: message.isFolder,
             callbackId: message.callbackId,
@@ -175,18 +152,15 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           break;
         }
         case 'openFile': {
-          // message.path might be absolute or relative - convert to relative
-          const relativePath = this.convertToRelativePath(message.path);
+          const mappedPath = this.toMappedPath(message.path);
           if (this.listener) {
-            this.listener.onNodeActivate(relativePath, false);
+            this.listener.onNodeActivate(mappedPath, false);
           }
           break;
         }
         case 'openText': {
-          // message.path might be absolute or relative - convert to relative then to absolute for URI
-          const relativePath = this.convertToRelativePath(message.path);
-          const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
-          await this.apiProvider.openFile(absolutePath, 0);
+          const mappedPath = this.toMappedPath(message.path);
+          await this.apiProvider.openFile(this.fsWrapper.resolve(mappedPath), 0);
           break;
         }
         case 'saveTreeState': {
@@ -209,11 +183,9 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
     this.apiProvider.postMessage({type: 'onCallback', data, success, error, callbackId});
   }
 
-  /**
-   * Convert path to relative path (handles both absolute and relative inputs)
-   */
-  private convertToRelativePath(pathInput: string): string {
-    return this.fsWrapper.toRelativePath(pathInput);
+  /** Convert an incoming path (absolute or already mapped) to a mapped path. */
+  private toMappedPath(pathInput: string): string {
+    return this.fsWrapper.mapPath(pathInput);
   }
 
   private checkDestination(destinationPath: string, callbackId: string) {
@@ -239,23 +211,11 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
 
 
   private getRootChildren(): {name: string; fullPath: string; isFolder: boolean}[] {
-    // Return root folders - wrapper returns relative paths, convert to absolute for webview
-    const children = this.fsWrapper.getRootChildren();
-    return children.map(child => ({
-      ...child,
-      fullPath: this.fsWrapper.toAbsolutePath(child.fullPath) // Convert to absolute for webview
-    }));
+    return this.fsWrapper.getRootChildren(); // fullPath is already a mapped path
   }
 
-  private readDirectory(relativePath: string):
-      {name: string; fullPath: string; isFolder: boolean}[] {
-    // relativePath is relative path (e.g., "Drafts" or "Drafts/subfolder")
-    const children = this.fsWrapper.readDirectory(relativePath);
-    // Convert relative paths to absolute for webview
-    return children.map(child => ({
-      ...child,
-      fullPath: this.fsWrapper.toAbsolutePath(child.fullPath) // Convert to absolute for webview
-    }));
+  private readDirectory(mappedPath: string): {name: string; fullPath: string; isFolder: boolean}[] {
+    return this.fsWrapper.readDirectory(mappedPath); // fullPath is already a mapped path
   }
 
 
@@ -357,8 +317,7 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
 
     try {
       this.fsWrapper.writeFile(relativePath, jsonData, 'utf-8');
-      const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
-      this.apiProvider.showInformationMessage(`Snippet saved to: ${absolutePath}`);
+      this.apiProvider.showInformationMessage(`Snippet saved to: ${this.fsWrapper.resolve(relativePath)}`);
       // Notify explorer view to add the new snippet if parent folder is expanded
       this.notifyNewSnippetCreated(relativePath, parentDir);
     } catch (err: any) {

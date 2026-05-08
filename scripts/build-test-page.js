@@ -5,14 +5,13 @@ const path = require('path');
 const mediaDir = path.join(__dirname, '..', 'media');
 const jsDir = path.join(mediaDir, 'js');
 const cssDir = path.join(mediaDir, 'css');
+const testSrcDir = path.join(__dirname, '..', 'src', 'test');
 const outTestDir = path.join(__dirname, '..', 'out', 'test');
 const outTestJsDir = path.join(outTestDir, 'js');
 const outTestJsWebviewDir = path.join(outTestJsDir, 'webview');
 const outTestCssDir = path.join(outTestDir, 'css');
 const templatePath = path.join(mediaDir, 'testPage.template.html');
 const cssPath = path.join(cssDir, 'explorerView.css');
-const testJsPath = path.join(outTestDir, 'SnippetorTest.js');
-const testJsWrapperPath = path.join(outTestJsWebviewDir, 'SnippetorTest.js');
 const outputPath = path.join(outTestDir, 'testPage.html');
 
 // Ensure output directories exist
@@ -35,7 +34,20 @@ if (fs.existsSync(cssPath)) {
   console.error(`Warning: CSS file not found: ${cssPath}`);
 }
 
-// Define JS files in dependency order (same as explorer view)
+// MockVsCodeApi.js must be first — it defines acquireVsCodeApi() before any
+// webview script runs.
+const mockApiSrc = path.join(testSrcDir, 'MockVsCodeApi.js');
+const mockApiDst = path.join(outTestJsWebviewDir, 'MockVsCodeApi.js');
+if (fs.existsSync(mockApiSrc)) {
+  fs.copyFileSync(mockApiSrc, mockApiDst);
+  console.log(`Copied MockVsCodeApi.js to ${mockApiDst}`);
+} else {
+  console.error(`Warning: MockVsCodeApi.js not found: ${mockApiSrc}`);
+}
+
+// Webview class files in dependency order.
+// init.js is included but its auto-init is guarded by window.isDebug (set in
+// the template), so it does nothing on load — Snippetor.activate() drives init.
 const jsFiles = [
   'MessageManager.js',
   'DialogManager.js',
@@ -47,7 +59,6 @@ const jsFiles = [
   'init.js'
 ];
 
-// Copy webview JS files to webview directory
 for (const jsFile of jsFiles) {
   const jsPath = path.join(jsDir, jsFile);
   const jsOutputPath = path.join(outTestJsWebviewDir, jsFile);
@@ -58,51 +69,33 @@ for (const jsFile of jsFiles) {
   }
 }
 
+// Browser-compatible test activation script (no Node.js requires).
+const browserTestSrc = path.join(testSrcDir, 'SnippetorBrowserTest.js');
+const browserTestDst = path.join(outTestJsWebviewDir, 'SnippetorBrowserTest.js');
+if (fs.existsSync(browserTestSrc)) {
+  fs.copyFileSync(browserTestSrc, browserTestDst);
+  console.log(`Copied SnippetorBrowserTest.js to ${browserTestDst}`);
+} else {
+  console.error(`Warning: SnippetorBrowserTest.js not found: ${browserTestSrc}`);
+}
+
 // Generate CSS import
 const cssImports = `<link rel="stylesheet" href="css/explorerView.css">`;
 
-// Generate JS imports (webview files)
-let jsImports = '';
+// MockVsCodeApi.js first, then the webview class scripts
+let jsImports = `    <script src="js/webview/MockVsCodeApi.js"></script>\n`;
 for (const jsFile of jsFiles) {
   jsImports += `    <script src="js/webview/${jsFile}"></script>\n`;
 }
 
-// Create wrapper for test JS file
-let testJsImport = '';
-if (fs.existsSync(testJsPath)) {
-  const testJsContent = fs.readFileSync(testJsPath, 'utf8');
-  // Wrap CommonJS exports to make them available globally in the browser
-  const testJsWrapper = `(function() {
-    // Create a minimal CommonJS environment
-    const exports = {};
-    const module = { exports: exports };
-    
-    ${testJsContent}
-    
-    // Expose to global scope for browser use
-    window.Snippetor = exports.Snippetor;
-    window.snippetor = exports.snippetor;
-    window.activate = exports.activate;
-    window.deactivate = exports.deactivate;
-  })();`;
-  
-  fs.writeFileSync(testJsWrapperPath, testJsWrapper, 'utf8');
-  testJsImport = '    <script src="js/webview/SnippetorTest.js"></script>\n';
-  console.log(`Created test JS wrapper at ${testJsWrapperPath}`);
-} else {
-  console.error(`Warning: Test JS file not found: ${testJsPath}`);
-  console.error('Make sure to run "npm run compile:test" first to build SnippetorTest.js');
-}
+// The browser test helper defines window.Snippetor
+const testJsImport = `    <script src="js/webview/SnippetorBrowserTest.js"></script>\n`;
 
-// Read template
+// Read template and replace placeholders
 const template = fs.readFileSync(templatePath, 'utf8');
-
-// Replace placeholders
 let html = template.replace('{{CSS_IMPORTS}}', cssImports);
 html = html.replace('{{JS_IMPORTS}}', jsImports);
 html = html.replace('{{TEST_JS_IMPORT}}', testJsImport);
 
-// Write output
 fs.writeFileSync(outputPath, html, 'utf8');
-
 console.log(`Built testPage.html to ${outputPath}`);

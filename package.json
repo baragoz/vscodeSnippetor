@@ -17,7 +17,7 @@
         {
           "id": "swArchitectureSnippets",
           "title": "SW Snippets",
-          "icon": "./out/icon.svg"
+          "icon": "./media/icon.svg"
         }
       ]
     },
@@ -27,13 +27,13 @@
           "type": "webview",
           "id": "snippetExplorerView",
           "name": "Explorer",
-          "icon": "./out/icon.svg"
+          "icon": "./media/icon.svg"
         },
         {
           "type": "webview",
           "id": "workingSnippetView",
           "name": "Working Snippet",
-          "icon": "./out/icon.svg"
+          "icon": "./media/icon.svg"
         }
       ]
     },
@@ -89,11 +89,11 @@
     ],
     "menus": {
       "view/item/context": [
-      {
-        "command": "snippetExplorer.open",
-        "when": "view == snippetExplorerView",
-        "group": "navigation"
-      }
+        {
+          "command": "snippetExplorer.open",
+          "when": "view == snippetExplorerView",
+          "group": "navigation"
+        }
       ],
       "view/title": [
         {
@@ -145,6 +145,7 @@
     "build:bundle": "node scripts/build-bundle.js",
     "compile": "npm run build:explorer && npm run build:bundle",
     "compile:test": "tsc -p ./tsconfig.test.json && npm run build:test-page",
+    "test-host": "vitest run",
     "vscode:prepublish": "npm run compile"
   },
   "resources": [
@@ -157,7 +158,10 @@
   "devDependencies": {
     "@types/node": "^24.0.3",
     "@types/vscode": "^1.80.0",
-    "esbuild": "^0.19.0",
-    "typescript": "^5.0.0"
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
   }
 }

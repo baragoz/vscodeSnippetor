@@ -227,18 +227,16 @@ export class MoveCommandHandler extends BaseCommandHandler {
         `Moved "${baseName}" to "${destFolderName}"`
       );
 
-      // Notify listener about the move (with absolute paths for compatibility)
+      // Notify listener with mapped paths
       if (this.listener) {
-        const sourceAbsolute = this.fsWrapper.toAbsolutePath(source);
-        const destAbsolute = this.fsWrapper.toAbsolutePath(destination);
         if (overwrite) {
           if (this.fsWrapper.exists(destination)) {
-            this.listener.onNodeOverwrite(destAbsolute, params.isFolder);
+            this.listener.onNodeOverwrite(destination, params.isFolder);
           } else {
-            this.listener.onNodeRemoved(destAbsolute, params.isFolder);
+            this.listener.onNodeRemoved(destination, params.isFolder);
           }
         } else {
-          this.listener.onNodeMoved(sourceAbsolute, destAbsolute, params.isFolder);
+          this.listener.onNodeMoved(source, destination, params.isFolder);
         }
       }
 
@@ -382,11 +380,10 @@ export class CopyCommandHandler extends BaseCommandHandler {
         );
       }
       
-      // Notify listener (with absolute paths for compatibility)
+      // Notify listener with mapped path
       if (this.listener) {
-        const destAbsolute = this.fsWrapper.toAbsolutePath(destination);
         if (overwrite && this.fsWrapper.exists(destination)) {
-          this.listener.onNodeOverwrite(destAbsolute, params.isFolder);
+          this.listener.onNodeOverwrite(destination, params.isFolder);
         }
       }
       
@@ -421,10 +418,9 @@ export class RemoveCommandHandler extends BaseCommandHandler {
       confirmed.then((data) => {
         if (data === 'Yes') {
           try {
-            // Notify listener about the removal (with absolute path for compatibility)
+            // Notify listener with mapped path
             if (this.listener) {
-              const absolutePath = this.fsWrapper.toAbsolutePath(params.fullPath);
-              this.listener.onNodeRemoved(absolutePath, params.isFolder);
+              this.listener.onNodeRemoved(params.fullPath, params.isFolder);
             }
 
             this.fsWrapper.remove(params.fullPath, true);

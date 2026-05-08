@@ -3,9 +3,13 @@
 
 import * as fs from 'fs';
 
+/**
+ * A virtual mount-point mapping: mountPoint ('/Drafts') → absolutePath on disk.
+ * All public API methods use mapped paths; absolute paths never leak out.
+ */
 export interface SnippetMapping {
-  folder: string;
-  mapping: string;
+  mountPoint: string;   // e.g. '/Drafts'
+  absolutePath: string; // real filesystem path the mount point resolves to
 }
 
 export interface ConfigLoadResult {
@@ -24,7 +28,7 @@ export interface FileStats {
 
 export interface DirectoryEntry {
   name: string;
-  fullPath: string;
+  fullPath: string; // mapped path, e.g. '/Drafts/sub/file.txt'
   isFolder: boolean;
 }
 
@@ -35,50 +39,44 @@ export interface AutocompleteResult {
 }
 
 /**
- * Common interface for filesystem wrapper implementations.
- * This interface defines the contract that both SnippetorFilesystemsWrapper
- * and MockFilesystemWrapper must implement.
+ * Filesystem abstraction using virtual mount points.
+ * All path arguments and return values are mapped paths ('/MountPoint/...').
+ * Absolute filesystem paths never appear in the public API.
  */
 export interface ISnippetorFilesystemWrapper {
   // Config management
   loadFoldersFromConfig(): ConfigLoadResult;
   reloadConfig(): ConfigLoadResult;
   getFolders(): SnippetMapping[];
-  getConfigAbsolutePath(): string;
+  getConfigAbsolutePath(): string; // exception: needed so VS Code can open the config file
 
-  // Path conversion
-  toAbsolutePath(relativePath: string): string;
-  toRelativePath(pathInput: string): string;
-  isRootFolder(relativePath: string): boolean;
+  // Mapped-path utilities
+  mapPath(absoluteOrMappedPath: string): string; // converts absolute → '/MountPoint/...'
+  resolve(mappedPath: string): string;            // converts '/MountPoint/...' → absolute (VS Code API only)
+  isRootFolder(mappedPath: string): boolean;
 
-  // Directory operations
+  // Directory operations (all paths are mapped)
   getRootChildren(): DirectoryEntry[];
-  readDirectory(relativePath: string): DirectoryEntry[];
-  mkdir(relativePath: string, recursive?: boolean): void;
+  readDirectory(mappedPath: string): DirectoryEntry[];
+  mkdir(mappedPath: string, recursive?: boolean): void;
 
-  // File operations
-  exists(relativePath: string): boolean;
-  stat(relativePath: string): FileStats | fs.Stats;
-  rename(oldRelativePath: string, newRelativePath: string): void;
-  writeFile(relativePath: string, data: string | Buffer, encoding?: BufferEncoding): void;
-  readFile(relativePath: string, encoding?: BufferEncoding): string;
-  remove(relativePath: string, recursive?: boolean): void;
-  copy(sourceRelativePath: string, destRelativePath: string): void;
+  // File operations (all paths are mapped)
+  exists(mappedPath: string): boolean;
+  stat(mappedPath: string): FileStats | fs.Stats;
+  rename(oldMappedPath: string, newMappedPath: string): void;
+  writeFile(mappedPath: string, data: string | Buffer, encoding?: BufferEncoding): void;
+  readFile(mappedPath: string, encoding?: BufferEncoding): string;
+  remove(mappedPath: string, recursive?: boolean): void;
+  copy(srcMappedPath: string, dstMappedPath: string): void;
 
-  // Path utilities
-  dirname(relativePath: string): string;
-  basename(relativePath: string): string;
-  join(...relativePaths: string[]): string;
-  getRootPath(): string;
-  computeRelativePath(from: string, to: string): string;
-  getBasenameFromAbsolute(absolutePath: string): string;
-  normalize(pathInput: string): string;
+  // Path utilities (work on mapped paths)
+  dirname(mappedPath: string): string;
+  basename(mappedPath: string): string;
+  join(...paths: string[]): string;
   getBasename(pathInput: string): string;
+  normalize(pathInput: string): string;
   get pathSep(): string;
-  movePathRelativeTo(oldBase: string, filePath: string, newBase: string): string;
-  relativePathWithSlashToAbsolute(relativePathWithSlash: string): string;
-  absoluteToRelativePathWithSlash(absolutePath: string): string;
 
   // Autocomplete
-  getAutoCompletion(relativePath: string): AutocompleteResult;
+  getAutoCompletion(mappedPath: string): AutocompleteResult;
 }

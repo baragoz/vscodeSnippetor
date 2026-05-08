@@ -14,584 +14,376 @@ import {
 export type { ConfigLoadResult, SnippetMapping };
 
 /**
- * Wrapper class that handles all filesystem operations and config management.
- * Converts between relative paths (used by providers) and absolute paths (used by filesystem).
+ * Filesystem wrapper using virtual mount points.
+ * Internally converts '/MountPoint/sub/file' ↔ absolute paths.
+ * No absolute paths appear in the public API.
  */
 export class SnippetorFilesystemsWrapper implements ISnippetorFilesystemWrapper {
   private rootPath: string;
   private configPath: string;
   private folders: SnippetMapping[] = [];
 
-  constructor() {
-    this.rootPath = path.join(os.homedir(), '.vscode', 'archsnippets');
+  constructor(tmpFolder?: string) {
+    this.rootPath = tmpFolder ?? path.join(os.homedir(), '.vscode', 'archsnippets');
     this.configPath = path.join(this.rootPath, 'config.json');
     this.initialize();
   }
 
-  /**
-   * Initialize storage and load config
-   */
   private initialize(): void {
     if (!fs.existsSync(this.rootPath)) {
-      fs.mkdirSync(this.rootPath, {recursive: true});
+      fs.mkdirSync(this.rootPath, { recursive: true });
     }
-
     const result = this.loadFoldersFromConfig();
     this.folders = result.folders;
   }
 
-  /**
-   * Get default folders configuration
-   */
+  // ---------------------------------------------------------------------------
+  // Internal path conversion (never exposed publicly)
+  // ---------------------------------------------------------------------------
+
+  /** '/Drafts/sub/file.txt' → absolute path */
+  private toAbsolutePath(mappedPath: string): string {
+    if (!mappedPath || mappedPath.trim() === '') {
+      throw new Error('Empty mapped path');
+    }
+    const normalized = mappedPath.replace(/^\/+|\/+$/g, '');
+    const parts = normalized.split('/').filter(p => p.length > 0);
+    if (parts.length === 0) {
+      throw new Error('Invalid mapped path');
+    }
+    const mountName = parts[0];
+    const folder = this.folders.find(f => f.mountPoint === '/' + mountName);
+    if (!folder) {
+      throw new Error(`Mount point "/${mountName}" not found in config`);
+    }
+    const subPath = parts.slice(1).join('/');
+    return subPath ? path.join(folder.absolutePath, subPath) : folder.absolutePath;
+  }
+
+  /** absolute path → '/Drafts/sub/file.txt' */
+  private toMappedPath(absolutePath: string): string {
+    // Return as-is when the input is already a known mapped path
+    if (this.folders.some(f =>
+        absolutePath === f.mountPoint || absolutePath.startsWith(f.mountPoint + '/'))) {
+      return absolutePath;
+    }
+    const normalized = path.normalize(absolutePath);
+    for (const folder of this.folders) {
+      const normalizedBase = path.normalize(folder.absolutePath);
+      if (normalized === normalizedBase ||
+          normalized.startsWith(normalizedBase + path.sep)) {
+        const relative = path.relative(normalizedBase, normalized);
+        if (relative === '' || relative === '.') {
+          return folder.mountPoint;
+        }
+        return `${folder.mountPoint}/${relative}`.replace(/\\/g, '/');
+      }
+    }
+    return absolutePath; // fallback (shouldn't happen in normal use)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Config management
+  // ---------------------------------------------------------------------------
+
   private getDefaultFolders(): SnippetMapping[] {
     return [
-      {folder: 'Drafts', mapping: path.join(this.rootPath, 'Drafts')},
-      {folder: 'LocalSpace', mapping: path.join(this.rootPath, 'LocalSpace')}
+      { mountPoint: '/Drafts',     absolutePath: path.join(this.rootPath, 'Drafts') },
+      { mountPoint: '/LocalSpace', absolutePath: path.join(this.rootPath, 'LocalSpace') }
     ];
   }
 
-  /**
-   * Load folders from config.json
-   */
+  /** Serialize SnippetMapping[] to the on-disk format (backward-compatible). */
+  private toConfigJson(folders: SnippetMapping[]): string {
+    const data = folders.map(f => ({
+      folder: f.mountPoint.slice(1), // '/Drafts' → 'Drafts'
+      mapping: f.absolutePath
+    }));
+    return JSON.stringify(data, null, 2);
+  }
+
   public loadFoldersFromConfig(): ConfigLoadResult {
     if (!fs.existsSync(this.configPath)) {
-      // Config doesn't exist - create default
-      const defaultFolders = this.getDefaultFolders();
-      this.ensureFoldersExist(defaultFolders);
-      fs.writeFileSync(this.configPath, JSON.stringify(defaultFolders, null, 2));
-      return {folders: defaultFolders, isValid: true};
+      const defaults = this.getDefaultFolders();
+      this.ensureFoldersExist(defaults);
+      fs.writeFileSync(this.configPath, this.toConfigJson(defaults));
+      return { folders: defaults, isValid: true };
     }
 
     try {
       const configContent = fs.readFileSync(this.configPath, 'utf-8');
       const parsed = JSON.parse(configContent);
-      
-      // Validate structure
       if (!Array.isArray(parsed)) {
         throw new Error('Config must be an array');
       }
-
       const folders: SnippetMapping[] = [];
       for (const item of parsed) {
         if (typeof item !== 'object' || !item.folder || !item.mapping) {
           throw new Error('Each config item must have "folder" and "mapping" properties');
         }
         folders.push({
-          folder: String(item.folder),
-          mapping: String(item.mapping)
+          mountPoint: '/' + String(item.folder),
+          absolutePath: String(item.mapping)
         });
       }
-
-      // Ensure all folders exist
       this.ensureFoldersExist(folders);
       this.folders = folders;
-      return {folders, isValid: true};
+      return { folders, isValid: true };
     } catch (err: any) {
-      // Invalid JSON or structure
-      const defaultFolders = this.getDefaultFolders();
-      const defaultFoldersExist = this.checkDefaultFoldersExist(defaultFolders);
-      
+      const defaults = this.getDefaultFolders();
+      const defaultsExist = defaults.some(f => fs.existsSync(f.absolutePath));
       return {
-        folders: defaultFoldersExist ? defaultFolders : [],
+        folders: defaultsExist ? defaults : [],
         isValid: false,
         error: err.message || 'Invalid JSON format'
       };
     }
   }
 
-  /**
-   * Reload config and return result
-   */
   public reloadConfig(): ConfigLoadResult {
     const result = this.loadFoldersFromConfig();
     this.folders = result.folders;
     return result;
   }
 
-  /**
-   * Get current folders
-   */
   public getFolders(): SnippetMapping[] {
     return this.folders;
   }
 
-  /**
-   * Get config file absolute path
-   */
   public getConfigAbsolutePath(): string {
     return this.configPath;
   }
 
-  /**
-   * Check if default folders exist
-   */
-  private checkDefaultFoldersExist(defaultFolders: SnippetMapping[]): boolean {
-    return defaultFolders.some(entry => fs.existsSync(entry.mapping));
-  }
-
-  /**
-   * Ensure folders exist, create if they don't
-   */
   private ensureFoldersExist(folders: SnippetMapping[]): void {
-    for (const entry of folders) {
-      if (!fs.existsSync(entry.mapping)) {
-        fs.mkdirSync(entry.mapping, {recursive: true});
+    for (const f of folders) {
+      if (!fs.existsSync(f.absolutePath)) {
+        fs.mkdirSync(f.absolutePath, { recursive: true });
       }
     }
   }
 
-  /**
-   * Convert relative path to absolute path
-   * Relative path format: "FolderName" or "FolderName/subpath"
-   */
-  public toAbsolutePath(relativePath: string): string {
-    if (!relativePath || relativePath.trim() === '') {
-      throw new Error('Empty relative path');
-    }
+  // ---------------------------------------------------------------------------
+  // Mapped-path utilities
+  // ---------------------------------------------------------------------------
 
-    // If already absolute, return as is
-    if (path.isAbsolute(relativePath)) {
-      return path.normalize(relativePath);
-    }
-
-    // Remove leading/trailing slashes
-    const normalized = relativePath.replace(/^\/+|\/+$/g, '');
-    const pathParts = normalized.split('/').filter(p => p.length > 0);
-
-    if (pathParts.length === 0) {
-      throw new Error('Invalid relative path');
-    }
-
-    const folderName = pathParts[0];
-    const folder = this.folders.find(f => f.folder === folderName);
-
-    if (!folder) {
-      throw new Error(`Folder "${folderName}" not found in config`);
-    }
-
-    const subPath = pathParts.slice(1).join('/');
-    return subPath ? path.join(folder.mapping, subPath) : folder.mapping;
+  public mapPath(absoluteOrMappedPath: string): string {
+    return this.toMappedPath(absoluteOrMappedPath);
   }
 
-  /**
-   * Convert path to relative path (handles both absolute and relative inputs)
-   * Returns format: "FolderName" or "FolderName/subpath"
-   */
-  public toRelativePath(pathInput: string): string {
-    if (!pathInput) {
-      return pathInput;
-    }
-
-    // If it's already a relative path (not absolute), normalize and return as is
-    if (!path.isAbsolute(pathInput)) {
-      // Check if it's a valid relative path format (e.g., "Drafts/subfolder")
-      const normalized = pathInput.replace(/^\/+|\/+$/g, '');
-      if (normalized && normalized.split('/').length > 0) {
-        return normalized;
-      }
-      return pathInput;
-    }
-
-    // Convert absolute path to relative
-    const normalized = path.normalize(pathInput);
-
-    for (const folder of this.folders) {
-      const normalizedMapping = path.normalize(folder.mapping);
-      if (normalized.startsWith(normalizedMapping + path.sep) || 
-          normalized === normalizedMapping) {
-        const relative = path.relative(normalizedMapping, normalized);
-        if (relative === '' || relative === '.') {
-          return folder.folder;
-        }
-        return `${folder.folder}/${relative}`.replace(/\\/g, '/');
-      }
-    }
-
-    // Fallback: try relative to rootPath
-    try {
-      const relative = path.relative(this.rootPath, normalized);
-      return relative.replace(/\\/g, '/');
-    } catch {
-      return normalized;
-    }
+  public resolve(mappedPath: string): string {
+    return this.toAbsolutePath(mappedPath);
   }
 
-  /**
-   * Check if relative path is a root folder (contains only folder name)
-   */
-  public isRootFolder(relativePath: string): boolean {
-    if (!relativePath || relativePath.trim() === '') {
+  public isRootFolder(mappedPath: string): boolean {
+    if (!mappedPath || mappedPath.trim() === '') {
       return false;
     }
-
-    const normalized = relativePath.replace(/^\/+|\/+$/g, '');
-    const pathParts = normalized.split('/').filter(p => p.length > 0);
-    
-    // Root folder if it has exactly one part and that part matches a folder name
-    return pathParts.length === 1 && 
-           this.folders.some(f => f.folder === pathParts[0]);
+    const normalized = mappedPath.replace(/^\/+|\/+$/g, '');
+    const parts = normalized.split('/').filter(p => p.length > 0);
+    return parts.length === 1 &&
+           this.folders.some(f => f.mountPoint === '/' + parts[0]);
   }
 
-  /**
-   * Get root children (relative paths)
-   */
+  // ---------------------------------------------------------------------------
+  // Directory operations
+  // ---------------------------------------------------------------------------
+
   public getRootChildren(): DirectoryEntry[] {
     return this.folders
-        .filter(entry => fs.existsSync(entry.mapping))
-        .map(entry => ({
-          name: entry.folder,
-          fullPath: entry.folder, // Return relative path
+        .filter(f => fs.existsSync(f.absolutePath))
+        .map(f => ({
+          name: f.mountPoint.slice(1), // 'Drafts'
+          fullPath: f.mountPoint,      // '/Drafts'
           isFolder: true
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /**
-   * Read directory contents (returns relative paths)
-   */
-  public readDirectory(relativePath: string): DirectoryEntry[] {
-    const absolutePath = this.toAbsolutePath(relativePath);
-    
+  public readDirectory(mappedPath: string): DirectoryEntry[] {
+    const absolutePath = this.toAbsolutePath(mappedPath);
     if (!fs.existsSync(absolutePath)) {
       return [];
     }
-
-    const entries = fs.readdirSync(absolutePath);
-    return entries
+    return fs.readdirSync(absolutePath)
         .filter(name => {
-          const fullPath = path.join(absolutePath, name);
-          const fileName = path.basename(fullPath);
-          // Only filter config.json if it's in the root path
-          if (absolutePath === this.rootPath && fileName === 'config.json') {
+          if (absolutePath === this.rootPath && name === 'config.json') {
             return false;
           }
           return true;
         })
         .map(name => {
-          const fullPath = path.join(absolutePath, name);
-          const isFolder = fs.statSync(fullPath).isDirectory();
-          const relativeFullPath = this.toRelativePath(fullPath);
-          return {name, fullPath: relativeFullPath, isFolder};
+          const fullAbsolute = path.join(absolutePath, name);
+          const isFolder = fs.statSync(fullAbsolute).isDirectory();
+          return { name, fullPath: this.toMappedPath(fullAbsolute), isFolder };
         })
         .sort((a, b) => {
-          // Folders first, then files
           if (a.isFolder && !b.isFolder) return -1;
           if (!a.isFolder && b.isFolder) return 1;
-          // Within same type, sort alphabetically by name
           return a.name.localeCompare(b.name);
         });
   }
 
-  /**
-   * Check if path exists
-   */
-  public exists(relativePath: string): boolean {
+  public mkdir(mappedPath: string, recursive: boolean = true): void {
+    fs.mkdirSync(this.toAbsolutePath(mappedPath), { recursive });
+  }
+
+  // ---------------------------------------------------------------------------
+  // File operations
+  // ---------------------------------------------------------------------------
+
+  public exists(mappedPath: string): boolean {
     try {
-      const absolutePath = this.toAbsolutePath(relativePath);
-      return fs.existsSync(absolutePath);
+      return fs.existsSync(this.toAbsolutePath(mappedPath));
     } catch {
       return false;
     }
   }
 
-  /**
-   * Get file stats
-   */
-  public stat(relativePath: string): fs.Stats {
-    const absolutePath = this.toAbsolutePath(relativePath);
-    return fs.statSync(absolutePath);
+  public stat(mappedPath: string): fs.Stats {
+    return fs.statSync(this.toAbsolutePath(mappedPath));
   }
 
-  /**
-   * Rename file or folder
-   */
-  public rename(oldRelativePath: string, newRelativePath: string): void {
-    const oldAbsolute = this.toAbsolutePath(oldRelativePath);
-    const newAbsolute = this.toAbsolutePath(newRelativePath);
-    fs.renameSync(oldAbsolute, newAbsolute);
+  public rename(oldMappedPath: string, newMappedPath: string): void {
+    fs.renameSync(this.toAbsolutePath(oldMappedPath), this.toAbsolutePath(newMappedPath));
   }
 
-  /**
-   * Create directory
-   */
-  public mkdir(relativePath: string, recursive: boolean = true): void {
-    const absolutePath = this.toAbsolutePath(relativePath);
-    fs.mkdirSync(absolutePath, {recursive});
+  public writeFile(mappedPath: string, data: string | Buffer, encoding?: BufferEncoding): void {
+    fs.writeFileSync(this.toAbsolutePath(mappedPath), data, encoding);
   }
 
-  /**
-   * Write file
-   */
-  public writeFile(relativePath: string, data: string | Buffer, encoding?: BufferEncoding): void {
-    const absolutePath = this.toAbsolutePath(relativePath);
-    fs.writeFileSync(absolutePath, data, encoding);
+  public readFile(mappedPath: string, encoding: BufferEncoding = 'utf-8'): string {
+    return fs.readFileSync(this.toAbsolutePath(mappedPath), encoding);
   }
 
-  /**
-   * Read file
-   */
-  public readFile(relativePath: string, encoding: BufferEncoding = 'utf-8'): string {
-    const absolutePath = this.toAbsolutePath(relativePath);
-    return fs.readFileSync(absolutePath, encoding);
-  }
-
-  /**
-   * Remove file or directory
-   */
-  public remove(relativePath: string, recursive: boolean = false): void {
-    const absolutePath = this.toAbsolutePath(relativePath);
+  public remove(mappedPath: string, recursive: boolean = false): void {
+    const absolutePath = this.toAbsolutePath(mappedPath);
     const stats = fs.statSync(absolutePath);
     if (stats.isDirectory()) {
-      fs.rmSync(absolutePath, {recursive: true, force: true});
+      fs.rmSync(absolutePath, { recursive, force: true });
     } else {
       fs.unlinkSync(absolutePath);
     }
   }
 
-  /**
-   * Copy file or directory
-   */
-  public copy(sourceRelativePath: string, destRelativePath: string): void {
-    const sourceAbsolute = this.toAbsolutePath(sourceRelativePath);
-    const destAbsolute = this.toAbsolutePath(destRelativePath);
-    
-    const stats = fs.statSync(sourceAbsolute);
+  public copy(srcMappedPath: string, dstMappedPath: string): void {
+    const src = this.toAbsolutePath(srcMappedPath);
+    const dst = this.toAbsolutePath(dstMappedPath);
+    const stats = fs.statSync(src);
     if (stats.isDirectory()) {
-      this.copyFolderRecursiveSync(sourceAbsolute, destAbsolute);
+      this.copyFolderRecursiveSync(src, dst);
     } else {
-      fs.copyFileSync(sourceAbsolute, destAbsolute);
+      fs.copyFileSync(src, dst);
     }
   }
 
-  /**
-   * Copy folder recursively
-   */
-  private copyFolderRecursiveSync(src: string, dest: string): void {
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(dest, {recursive: true});
+  private copyFolderRecursiveSync(src: string, dst: string): void {
+    if (!fs.existsSync(dst)) {
+      fs.mkdirSync(dst, { recursive: true });
     }
-
-    const entries = fs.readdirSync(src, {withFileTypes: true});
-
-    for (const entry of entries) {
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
       const srcPath = path.join(src, entry.name);
-      const destPath = path.join(dest, entry.name);
-
+      const dstPath = path.join(dst, entry.name);
       if (entry.isDirectory()) {
-        this.copyFolderRecursiveSync(srcPath, destPath);
+        this.copyFolderRecursiveSync(srcPath, dstPath);
       } else {
-        fs.copyFileSync(srcPath, destPath);
+        fs.copyFileSync(srcPath, dstPath);
       }
     }
   }
 
-  /**
-   * Get directory name from relative path
-   */
-  public dirname(relativePath: string): string {
-    const absolutePath = this.toAbsolutePath(relativePath);
-    const absoluteDir = path.dirname(absolutePath);
-    return this.toRelativePath(absoluteDir);
+  // ---------------------------------------------------------------------------
+  // Path utilities
+  // ---------------------------------------------------------------------------
+
+  public dirname(mappedPath: string): string {
+    return this.toMappedPath(path.dirname(this.toAbsolutePath(mappedPath)));
   }
 
-  /**
-   * Get basename from relative path
-   */
-  public basename(relativePath: string): string {
-    const absolutePath = this.toAbsolutePath(relativePath);
-    return path.basename(absolutePath);
+  public basename(mappedPath: string): string {
+    return path.basename(mappedPath);
   }
 
-  /**
-   * Join relative paths
-   */
-  public join(...relativePaths: string[]): string {
-    // Convert all to absolute, join, then convert back
-    const absolutePaths = relativePaths.map(p => {
-      try {
-        return this.toAbsolutePath(p);
-      } catch {
-        // If it's not a valid relative path, treat as subpath
-        return p;
-      }
+  public join(...paths: string[]): string {
+    const absolutePaths = paths.map(p => {
+      try { return this.toAbsolutePath(p); }
+      catch { return p; } // plain segment like 'file.txt'
     });
-    
-    const joined = path.join(...absolutePaths);
-    return this.toRelativePath(joined);
+    return this.toMappedPath(path.join(...absolutePaths));
   }
 
-  /**
-   * Get root path (absolute path to .vscode/archsnippets)
-   */
-  public getRootPath(): string {
-    return this.rootPath;
-  }
-
-  /**
-   * Compute relative path from one absolute path to another
-   * General utility method for path operations (not specific to snippet paths)
-   */
-  public computeRelativePath(from: string, to: string): string {
-    return path.relative(from, to);
-  }
-
-  /**
-   * Get basename from absolute path
-   * General utility method for path operations (not specific to snippet paths)
-   */
-  public getBasenameFromAbsolute(absolutePath: string): string {
-    return path.basename(absolutePath);
-  }
-
-  /**
-   * Normalize a path (general utility, works with any path)
-   */
-  public normalize(pathInput: string): string {
-    return path.normalize(pathInput);
-  }
-
-  /**
-   * Get basename from any path (general utility, works with any path)
-   */
   public getBasename(pathInput: string): string {
     return path.basename(pathInput);
   }
 
-  /**
-   * Get path separator (platform-specific: '/' on Unix, '\' on Windows)
-   */
+  public normalize(pathInput: string): string {
+    return path.normalize(pathInput);
+  }
+
   public get pathSep(): string {
     return path.sep;
   }
 
-  /**
-   * Move a file path from being relative to one base path to being relative to another base path
-   * This is useful when a folder is renamed or moved and we need to update paths of files inside it
-   * @param oldBase The old base path (e.g., old folder path)
-   * @param filePath The file path that was relative to oldBase
-   * @param newBase The new base path (e.g., new folder path)
-   * @returns The file path relative to newBase
-   */
-  public movePathRelativeTo(oldBase: string, filePath: string, newBase: string): string {
-    const relativePath = path.relative(oldBase, filePath);
-    return path.join(newBase, relativePath);
-  }
+  // ---------------------------------------------------------------------------
+  // Autocomplete
+  // ---------------------------------------------------------------------------
 
-  /**
-   * Convert relative path with leading slash (e.g., "/Drafts/file.snippet") to absolute path
-   * This is used when loading snippets from JSON where paths are stored with leading slash
-   */
-  public relativePathWithSlashToAbsolute(relativePathWithSlash: string): string {
-    if (!relativePathWithSlash) {
-      return '';
-    }
-    // Remove leading slash and convert to absolute
-    const relativePath = relativePathWithSlash.startsWith('/') 
-      ? relativePathWithSlash.substring(1) 
-      : relativePathWithSlash;
-    return path.join(this.rootPath, relativePath);
-  }
+  public getAutoCompletion(mappedPath: string): AutocompleteResult {
+    const normalizedInput = mappedPath.trim().replace(/^\/+|\/+$/g, '');
 
-  /**
-   * Convert absolute path to relative path with leading slash (e.g., "/Drafts/file.snippet")
-   * This format is used when storing paths in snippet JSON files
-   */
-  public absoluteToRelativePathWithSlash(absolutePath: string): string {
-    if (!absolutePath) {
-      return '';
-    }
-    const relative = path.relative(this.rootPath, absolutePath);
-    return '/' + relative.replace(/\\/g, '/');
-  }
-
-  /**
-   * Get autocomplete for a relative path
-   */
-  public getAutoCompletion(relativePath: string): AutocompleteResult {
-    // Normalize the input path - remove leading/trailing slashes and whitespace
-    const normalizedInput = relativePath.trim().replace(/^\/+|\/+$/g, '');
-    
-    // Handle empty path - return root folders
-    if (!normalizedInput || normalizedInput === '') {
+    if (!normalizedInput) {
       return {
         error: '',
         path: '',
         autocomplete: this.folders
-            .filter(f => fs.existsSync(f.mapping))
-            .map(f => ({name: f.folder + '/', isDirectory: true}))
+            .filter(f => fs.existsSync(f.absolutePath))
+            .map(f => ({ name: f.mountPoint.slice(1) + '/', isDirectory: true }))
       };
     }
 
     let targetPath: string;
     let returnPath: string;
-    
+
     try {
-      targetPath = this.toAbsolutePath(normalizedInput);
-      returnPath = normalizedInput;
+      targetPath = this.toAbsolutePath('/' + normalizedInput);
+      returnPath = '/' + normalizedInput;
     } catch (err: any) {
-      // Try to handle partial paths
-      const pathParts = normalizedInput.split('/').filter(p => p.length > 0);
-      
-      if (pathParts.length > 0) {
-        const folderName = pathParts[0];
-        const folder = this.folders.find(f => f.folder === folderName);
-        
+      const parts = normalizedInput.split('/').filter(p => p.length > 0);
+      if (parts.length > 0) {
+        const folder = this.folders.find(f => f.mountPoint === '/' + parts[0]);
         if (folder) {
-          const subPath = pathParts.slice(1).join('/');
-          targetPath = subPath ? path.join(folder.mapping, subPath) : folder.mapping;
-          returnPath = subPath ? `${folderName}/${subPath}` : folderName;
+          const subPath = parts.slice(1).join('/');
+          targetPath = subPath ? path.join(folder.absolutePath, subPath) : folder.absolutePath;
+          returnPath = subPath ? `/${parts[0]}/${subPath}` : `/${parts[0]}`;
         } else {
-          return {
-            error: `Folder "${folderName}" not found.`,
-            path: normalizedInput,
-            autocomplete: []
-          };
+          return { error: `Mount point "/${parts[0]}" not found.`, path: '/' + normalizedInput, autocomplete: [] };
         }
       } else {
         return {
           error: '',
           path: '',
           autocomplete: this.folders
-              .filter(f => fs.existsSync(f.mapping))
-              .map(f => ({name: f.folder + '/', isDirectory: true}))
+              .filter(f => fs.existsSync(f.absolutePath))
+              .map(f => ({ name: f.mountPoint.slice(1) + '/', isDirectory: true }))
         };
       }
     }
 
     if (!fs.existsSync(targetPath)) {
-      return {
-        error: 'Path does not exist.',
-        path: returnPath,
-        autocomplete: []
-      };
+      return { error: 'Path does not exist.', path: returnPath, autocomplete: [] };
     }
 
     try {
       const stats = fs.statSync(targetPath);
       if (!stats.isDirectory()) {
-        return {
-          error: 'Path is not a directory.',
-          path: returnPath,
-          autocomplete: []
-        };
+        return { error: 'Path is not a directory.', path: returnPath, autocomplete: [] };
       }
-
-      const entries = fs.readdirSync(targetPath, {withFileTypes: true});
+      const entries = fs.readdirSync(targetPath, { withFileTypes: true });
       return {
         error: '',
         path: returnPath,
         autocomplete: entries
-            .filter(entry => {
-              // Filter out config.json if we're in the root path
-              if (targetPath === this.rootPath && entry.name === 'config.json') {
-                return false;
-              }
-              return true;
-            })
-            .map(entry => ({
-              name: entry.name,
-              isDirectory: entry.isDirectory()
-            }))
+            .filter(entry => !(targetPath === this.rootPath && entry.name === 'config.json'))
+            .map(entry => ({ name: entry.name, isDirectory: entry.isDirectory() }))
       };
     } catch (err: any) {
       return {
