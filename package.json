@@ -3,7 +3,7 @@
   "displayName": "SW Architecture Snippets",
   "publisher": "Snippetor",
   "description": "Extension to manage software architecture snippets with explorer view and snippet capture",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -17,7 +17,7 @@
         {
           "id": "swArchitectureSnippets",
           "title": "SW Snippets",
-          "icon": "./media/icon.svg"
+          "icon": "out/icon.svg"
         }
       ]
     },
@@ -27,13 +27,13 @@
           "type": "webview",
           "id": "snippetExplorerView",
           "name": "Explorer",
-          "icon": "./media/icon.svg"
+          "icon": "/out/extension/media/icon.svg"
         },
         {
           "type": "webview",
           "id": "workingSnippetView",
           "name": "Working Snippet",
-          "icon": "./media/icon.svg"
+          "icon": "/out/extension/media/icon.svg"
         }
       ]
     },
@@ -148,9 +148,16 @@
     "test-host": "vitest run",
     "vscode:prepublish": "npm run compile"
   },
+  "files": [
+    "out",
+    "media"
+  ],
   "resources": [
     "out/extension/media/snippetView.html",
     "out/extension/media/explorerView.html",
+    "out/extension/media/icon.svg",
+    "out/icon.svg",
+    "media/icon.svg",
     "out/extension/media/images/light_empty.png",
     "out/extension/media/images/light_error.png",
     "out/extension/media/images/light_plus.png"

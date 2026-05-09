@@ -323,6 +323,14 @@ export class SnippetorFilesystemsWrapper implements ISnippetorFilesystemWrapper 
     return path.sep;
   }
 
+  public computeRelativePath(from: string, to: string): string {
+    return path.relative(from, to).replace(/\\/g, '/');
+  }
+
+  public getBasenameFromAbsolute(absolutePath: string): string {
+    return path.basename(absolutePath);
+  }
+
   // ---------------------------------------------------------------------------
   // Autocomplete
   // ---------------------------------------------------------------------------

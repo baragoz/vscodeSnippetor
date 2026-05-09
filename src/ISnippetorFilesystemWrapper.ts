@@ -79,4 +79,8 @@ export interface ISnippetorFilesystemWrapper {
 
   // Autocomplete
   getAutoCompletion(mappedPath: string): AutocompleteResult;
+
+  // General path utilities (work on arbitrary absolute paths, not mapped paths)
+  computeRelativePath(from: string, to: string): string;
+  getBasenameFromAbsolute(absolutePath: string): string;
 }

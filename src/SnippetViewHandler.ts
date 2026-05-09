@@ -69,11 +69,17 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         const fullPath = document.fileName;
         console.log("Selected line: ", line, " in file: ", fullPath);
         const workspaceFolder = this.apiProvider.getWorkspaceFolder(document.uri);
+
+        console.log("Selected file workspace folder: ", workspaceFolder);
         const relativePath = workspaceFolder 
             ? this.fsWrapper.computeRelativePath(workspaceFolder, fullPath) 
             : fullPath;
+
+        console.log("Selected file relative path: ", relativePath);
         const fileName = this.fsWrapper.getBasenameFromAbsolute(relativePath);
         const snippetLine = `${fileName}:${line}`;
+
+        console.log("Selected file name : ", fileName);
 
         this.cachedFilePath = relativePath;
         this.cachedSnippetLine = snippetLine;
@@ -336,7 +342,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         // Copy snippets list from saved data in file
         this.snippetList = snippetList;
         // Store full path: convert relative path (like /Drafts/file.snippet) to full path
-        this.currentSnippetFullPath = head.path ? this.fsWrapper.relativePathWithSlashToAbsolute(head.path) : '';
+        this.currentSnippetFullPath = head.path ? this.fsWrapper.resolve(head.path) : '';
         
         // Update the listener's active file
         if (this.listenerHelper) {
