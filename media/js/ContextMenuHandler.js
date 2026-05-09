@@ -17,8 +17,6 @@ class ContextMenuHandler {
         const menu = this.treeView.contextMenu;
         menu.innerHTML = '';
 
-        if (node.isTopLevel) return;
-
         if (!node.isFolder) {
             this.addMenuItem(menu, 'Open', () => {
                 this.commandHandler.openFile( node.fullPath );
@@ -32,12 +30,12 @@ class ContextMenuHandler {
         this.addMenuItem(menu, 'Copy', () => {
             this.contextAction = "copy:" + (node.isFolder ? "folder:" : "file:") + node.fullPath;
             this.contextActionTime = Date.now();
-        });
+        }, node.isTopLevel);
 
         this.addMenuItem(menu, 'Cut', () => {
             this.contextActionTime = Date.now();
             this.contextAction = "move:" + (node.isFolder ? "folder:" : "file:") + node.fullPath;
-        });
+        }, node.isTopLevel);
 
         this.addMenuItem(menu, 'Paste', () => {
             if (this.contextAction !== "") {
@@ -62,11 +60,11 @@ class ContextMenuHandler {
             const span = li.querySelector('.sne-editable');
             span.contentEditable = true;
             span.focus();
-        });
+        }, node.isTopLevel);
 
         this.addMenuItem(menu, 'Delete', () => {
             this.commandHandler.removeNode(node);
-        });
+        }, node.isTopLevel);
 
         menu.style.left = `${x}px`;
         menu.style.top = `${y}px`;

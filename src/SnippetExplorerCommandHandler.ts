@@ -86,18 +86,6 @@ export abstract class BaseCommandHandler implements ICommandHandler {
       return `Cannot move top-level folder: ${baseName}`;
     }
 
-    // Check if destination is a root folder
-    if (this.fsWrapper.isRootFolder(destinationFolder)) {
-      return `Failed to drop to the root folder.`;
-    }
-
-    if (!isFolder) {
-      const baseDir = this.fsWrapper.dirname(source);
-      if (this.fsWrapper.isRootFolder(baseDir)) {
-        return `Failed to drop file to the root folder.`;
-      }
-    }
-
     return null;
   }
 

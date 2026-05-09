@@ -80,35 +80,33 @@ describe('MoveCommandHandler', () => {
       expect(sendCallback).toHaveBeenCalledWith(false, expect.any(String), 'cb');
     });
 
-    it('rejects drop when target is a root folder', async () => {
-      // 1. Create a source folder
+    it('allows dropping a folder into a root folder', async () => {
+      // 1. Create source folder and ensure the root target exists
       // 2. Execute with targetPath being a root folder ("/LocalSpace")
-      // 3. Expect rejection with "root folder" in the warning
+      // 3. Expect success — dropping into a root folder is permitted
       wrapper.mkdir('/Drafts/srcDir');
+      wrapper.mkdir('/LocalSpace');
       await makeHandler().execute(makeParams({
         sourcePath: '/Drafts/srcDir',
         targetPath: '/LocalSpace',
         isFolder: true,
       }));
-      expect(mockApi.showWarningMessage).toHaveBeenCalledWith(
-        expect.stringContaining('root folder')
-      );
-      expect(sendCallback).toHaveBeenCalledWith(false, expect.any(String), 'cb');
+      expect(sendCallback).toHaveBeenCalledWith(true, '', 'cb');
     });
 
-    it('rejects moving a file whose parent is a root folder', async () => {
-      // 1. Execute with a file directly inside "/Drafts" (a root folder)
-      // 2. Expect rejection: the dirname of source is a root folder
-      // 3. Expect sendCallback called with false
+    it('allows moving a file whose parent is a root folder', async () => {
+      // 1. Create file directly inside a root folder and a valid destination
+      // 2. Execute move
+      // 3. Expect success — files in root folders can be moved freely
+      wrapper.mkdir('/Drafts');
+      wrapper.writeFile('/Drafts/file.txt', 'content');
+      wrapper.mkdir('/LocalSpace/dst');
       await makeHandler().execute(makeParams({
         sourcePath: '/Drafts/file.txt',
         targetPath: '/LocalSpace/dst',
         isFolder: false,
       }));
-      expect(mockApi.showWarningMessage).toHaveBeenCalledWith(
-        expect.stringContaining('root folder')
-      );
-      expect(sendCallback).toHaveBeenCalledWith(false, expect.any(String), 'cb');
+      expect(sendCallback).toHaveBeenCalledWith(true, '', 'cb');
     });
 
     it('rejects moving a folder to the same location', async () => {
