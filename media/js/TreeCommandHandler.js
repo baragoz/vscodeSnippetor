@@ -153,11 +153,9 @@ class TreeCommandHandler {
             return;
         }
 
-        if (!isMovingFolder) {
-            const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
-            if (baseSource === targetPath) {
-                return;
-            }
+        const baseSource = sourcePath.substring(0, sourcePath.lastIndexOf('/'));
+        if (baseSource === targetPath) {
+            return;
         }
 
         if (sourcePath && targetPath && sourcePath !== targetPath) {

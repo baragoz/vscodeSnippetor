@@ -54,14 +54,31 @@ This flexibility allows you to choose your own backend and storage method, makin
 
 ## 💻 How to Build from Source
 
-Want to build Snippetor yourself? It's simple\!
+Make sure you have **Node.js** installed, then clone the repo and install dependencies:
 
-1.  Make sure you have **Node.js** installed.
-2.  Clone the repository: `git clone https://github.com/your-username/snippetor.git`
-3.  Navigate into the directory: `cd snippetor`
-4.  Compile the TypeScript project: `npx tsc`
+```bash
+git clone https://github.com/your-username/snippetor.git
+cd snippetor
+npm install
+```
 
-Once compiled, you can run and debug the extension in VS Code.
+### Build targets
+
+| Command | Description |
+|---|---|
+| `npm run compile` | Full build — compiles TypeScript and assembles the webview HTML |
+| `npm run build:explorer` | Rebuilds only the explorer webview HTML from `media/js/` and `media/css/` |
+| `npm run build:bundle` | Compiles the TypeScript extension bundle |
+| `npm run compile:test` | Compiles the test TypeScript and builds the test page |
+
+### Test targets
+
+| Command | Description |
+|---|---|
+| `npm run test-host` | Runs unit tests with Vitest (no VS Code instance required) |
+| `npm run test:vscode` | Runs integration tests inside a real VS Code instance |
+
+> **Note:** `build:explorer` must be re-run whenever you change files under `media/js/` or `media/css/`, as the extension loads the assembled file from `out/extension/media/explorerView.html`.
 
 ## 🗺️ Future Plans
 
