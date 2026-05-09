@@ -94,10 +94,40 @@ describe('loadFoldersFromConfig / reloadConfig / getFolders', () => {
     // 1. Overwrite config.json with invalid JSON
     // 2. Call loadFoldersFromConfig
     // 3. Expect isValid=false and a defined error message
+    // 4. Expect getFolders() to still return the original mount points
     fs.writeFileSync(path.join(tmpDir, 'config.json'), 'NOT JSON');
     const result = wrapper.loadFoldersFromConfig();
     expect(result.isValid).toBe(false);
     expect(result.error).toBeDefined();
+    expect(wrapper.getFolders().map(f => f.mountPoint)).toEqual(
+      expect.arrayContaining(['/Drafts', '/LocalSpace'])
+    );
+  });
+
+  it('reloadConfig with invalid JSON preserves current folders', () => {
+    // 1. Corrupt config.json
+    // 2. Call reloadConfig
+    // 3. Expect isValid=false
+    // 4. Expect getFolders() to still return the original mount points
+    fs.writeFileSync(path.join(tmpDir, 'config.json'), 'NOT JSON');
+    const result = wrapper.reloadConfig();
+    expect(result.isValid).toBe(false);
+    expect(wrapper.getFolders().map(f => f.mountPoint)).toEqual(
+      expect.arrayContaining(['/Drafts', '/LocalSpace'])
+    );
+  });
+
+  it('after reloadConfig with new folders, old mount points are inaccessible', () => {
+    // 1. Write a config with only a Custom folder
+    // 2. Call reloadConfig
+    // 3. Expect resolve('/Drafts') to throw
+    // 4. Expect exists('/Drafts') to return false (not throw)
+    const customConfig = [{ folder: 'Custom', mapping: path.join(tmpDir, 'Custom') }];
+    fs.mkdirSync(path.join(tmpDir, 'Custom'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify(customConfig, null, 2));
+    wrapper.reloadConfig();
+    expect(() => wrapper.resolve('/Drafts')).toThrow();
+    expect(wrapper.exists('/Drafts')).toBe(false);
   });
 
   it('getFolders returns current loaded folders with mountPoint and absolutePath', () => {
@@ -278,6 +308,24 @@ describe('remove', () => {
     wrapper.remove('/Drafts/folder', true);
     expect(wrapper.exists('/Drafts/folder')).toBe(false);
   });
+
+  it('remove with recursive=false removes an empty directory', () => {
+    // 1. Create an empty directory
+    // 2. Remove it without recursive flag
+    // 3. Expect it to no longer exist
+    wrapper.mkdir('/Drafts/emptyDir');
+    wrapper.remove('/Drafts/emptyDir', false);
+    expect(wrapper.exists('/Drafts/emptyDir')).toBe(false);
+  });
+
+  it('remove with recursive=false throws on a non-empty directory', () => {
+    // 1. Create a directory with a file inside
+    // 2. Attempt remove without recursive flag
+    // 3. Expect an error to be thrown
+    wrapper.mkdir('/Drafts/nonEmpty');
+    wrapper.writeFile('/Drafts/nonEmpty/file.txt', 'content');
+    expect(() => wrapper.remove('/Drafts/nonEmpty', false)).toThrow();
+  });
 });
 
 describe('copy', () => {
@@ -334,11 +382,8 @@ describe('readDirectory', () => {
 
 describe('dirname / basename', () => {
   it('dirname returns the parent mapped path', () => {
-    // 1. Create a subdirectory and write a file inside it
-    // 2. Call dirname on the file's mapped path
-    // 3. Expect the parent mapped path
-    wrapper.mkdir('/Drafts/sub');
-    wrapper.writeFile('/Drafts/sub/file.txt', '');
+    // 1. Call dirname on a mapped path (no filesystem access needed — pure string op)
+    // 2. Expect the parent mapped path
     expect(wrapper.dirname('/Drafts/sub/file.txt')).toBe('/Drafts/sub');
   });
 
@@ -373,6 +418,22 @@ describe('path utilities', () => {
     // 2. Expect a non-empty string ('/' on Unix, '\' on Windows)
     expect(typeof wrapper.pathSep).toBe('string');
     expect(wrapper.pathSep.length).toBeGreaterThan(0);
+  });
+});
+
+describe('computeRelativePath / getBasenameFromAbsolute', () => {
+  it('computeRelativePath returns a forward-slash relative path', () => {
+    // 1. Build two absolute paths that share a common ancestor
+    // 2. Expect the relative path between them
+    const from = path.join(tmpDir, 'Drafts');
+    const to = path.join(tmpDir, 'Drafts', 'sub', 'file.txt');
+    expect(wrapper.computeRelativePath(from, to)).toBe('sub/file.txt');
+  });
+
+  it('getBasenameFromAbsolute returns the filename from an absolute path', () => {
+    // 1. Pass a full absolute path
+    // 2. Expect only the filename portion
+    expect(wrapper.getBasenameFromAbsolute(path.join(tmpDir, 'Drafts', 'notes.txt'))).toBe('notes.txt');
   });
 });
 

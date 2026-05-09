@@ -127,7 +127,6 @@ export class SnippetorFilesystemsWrapper implements ISnippetorFilesystemWrapper 
         });
       }
       this.ensureFoldersExist(folders);
-      this.folders = folders;
       return { folders, isValid: true };
     } catch (err: any) {
       const defaults = this.getDefaultFolders();
@@ -142,7 +141,9 @@ export class SnippetorFilesystemsWrapper implements ISnippetorFilesystemWrapper 
 
   public reloadConfig(): ConfigLoadResult {
     const result = this.loadFoldersFromConfig();
-    this.folders = result.folders;
+    if (result.isValid) {
+      this.folders = result.folders;
+    }
     return result;
   }
 
@@ -205,12 +206,6 @@ export class SnippetorFilesystemsWrapper implements ISnippetorFilesystemWrapper 
       return [];
     }
     return fs.readdirSync(absolutePath)
-        .filter(name => {
-          if (absolutePath === this.rootPath && name === 'config.json') {
-            return false;
-          }
-          return true;
-        })
         .map(name => {
           const fullAbsolute = path.join(absolutePath, name);
           const isFolder = fs.statSync(fullAbsolute).isDirectory();
@@ -259,7 +254,11 @@ export class SnippetorFilesystemsWrapper implements ISnippetorFilesystemWrapper 
     const absolutePath = this.toAbsolutePath(mappedPath);
     const stats = fs.statSync(absolutePath);
     if (stats.isDirectory()) {
-      fs.rmSync(absolutePath, { recursive, force: true });
+      if (recursive) {
+        fs.rmSync(absolutePath, { recursive: true, force: true });
+      } else {
+        fs.rmdirSync(absolutePath); // throws ENOTEMPTY when directory is non-empty
+      }
     } else {
       fs.unlinkSync(absolutePath);
     }
