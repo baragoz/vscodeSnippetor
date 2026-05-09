@@ -119,67 +119,11 @@
             margin: 4px 0;
         }
 
-        /* Dialog styles */
-        .sne-dialog {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: var(--vscode-editorWidget-background);
-            color: var(--vscode-editorWidget-foreground);
-            border: 1px solid var(--vscode-editorWidget-border);
-            padding: 16px;
-            z-index: 10000;
-            min-width: 280px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
-            border-radius: 6px;
-        }
-
-        .sne-dialog-message {
-            margin-bottom: 12px;
-        }
-
-        .sne-dialog-message-large {
-            margin-bottom: 16px;
-        }
-
-        .sne-dialog-button {
-            padding: 4px 12px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        .sne-dialog-button-primary {
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-        }
-
-        .sne-dialog-button-primary:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-
-        .sne-dialog-button-secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            margin-right: 8px;
-        }
-
-        .sne-dialog-button-secondary:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
-
-        .sne-dialog-button-container {
-            display: flex;
-            gap: 8px;
-            justify-content: flex-end;
-        }
     </style>
 </head>
 
 <body>
     <ul id="sne-tree"></ul>
-    <div id="sne-error-dialog"></div>
     <div id="sne-context-menu" class="sne-context" style="display: none;"></div>
 
     <script>
@@ -250,69 +194,27 @@
         }
 
         // ============================================================================
-        // DialogManager - Handles all dialog showing (error, confirm, etc.)
+        // DialogManager - Delegates dialog display to the VS Code host
         // ============================================================================
         class DialogManager {
+            constructor(messageManager) {
+                this.messageManager = messageManager;
+            }
+
             showErrorDialog(errorMessage) {
-                const existing = document.getElementById('sne-error-dialog');
-                if (existing) existing.remove();
-
-                const dialog = document.createElement('div');
-                dialog.id = 'sne-error-dialog';
-                dialog.className = 'sne-dialog';
-
-                const message = document.createElement('div');
-                message.className = 'sne-dialog-message';
-                message.textContent = errorMessage;
-                dialog.appendChild(message);
-
-                const button = document.createElement('button');
-                button.className = 'sne-dialog-button sne-dialog-button-primary';
-                button.textContent = 'OK';
-                button.onclick = () => {
-                    dialog.remove();
-                };
-
-                dialog.appendChild(button);
-                document.body.appendChild(dialog);
+                const message = errorMessage instanceof Error ? errorMessage.message : String(errorMessage);
+                this.messageManager.sendMessage('showError', { message });
             }
 
             showConfirmDialog(message, onConfirm, onCancel) {
-                const existing = document.getElementById('sne-confirm-dialog');
-                if (existing) existing.remove();
-
-                const dialog = document.createElement('div');
-                dialog.id = 'sne-confirm-dialog';
-                dialog.className = 'sne-dialog';
-
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'sne-dialog-message-large';
-                messageDiv.textContent = message;
-                dialog.appendChild(messageDiv);
-
-                const buttonContainer = document.createElement('div');
-                buttonContainer.className = 'sne-dialog-button-container';
-
-                const cancelButton = document.createElement('button');
-                cancelButton.className = 'sne-dialog-button sne-dialog-button-secondary';
-                cancelButton.textContent = 'Cancel';
-                cancelButton.onclick = () => {
-                    dialog.remove();
-                    if (onCancel) onCancel();
-                };
-
-                const confirmButton = document.createElement('button');
-                confirmButton.className = 'sne-dialog-button sne-dialog-button-primary';
-                confirmButton.textContent = 'Confirm';
-                confirmButton.onclick = () => {
-                    dialog.remove();
-                    if (onConfirm) onConfirm();
-                };
-
-                buttonContainer.appendChild(cancelButton);
-                buttonContainer.appendChild(confirmButton);
-                dialog.appendChild(buttonContainer);
-                document.body.appendChild(dialog);
+                this.messageManager.sendCommand('showConfirm', { message })
+                    .then(result => {
+                        if (result.confirmed) {
+                            if (onConfirm) { onConfirm(); }
+                        } else {
+                            if (onCancel) { onCancel(); }
+                        }
+                    });
             }
         }
 
@@ -323,7 +225,7 @@
             constructor(messageManager, treeView) {
                 this.messageManager = messageManager;
                 this.treeView = treeView;
-                this.dialogManager = new DialogManager();
+                this.dialogManager = new DialogManager(messageManager);
             }
 
             async expand(path) {

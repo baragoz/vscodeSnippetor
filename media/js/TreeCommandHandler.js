@@ -5,7 +5,7 @@ class TreeCommandHandler {
     constructor(messageManager, treeView) {
         this.messageManager = messageManager;
         this.treeView = treeView;
-        this.dialogManager = new DialogManager();
+        this.dialogManager = new DialogManager(messageManager);
     }
 
     async expand(path) {

@@ -35,6 +35,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   private fsWrapper: ISnippetorFilesystemWrapper;
   // Full path of currently open snippet file (absolute path)
   private currentSnippetFullPath: string = '';
+  // True when snippet has unsaved changes
+  private isModified: boolean = false;
   // Listener helper instance
   private listenerHelper?: SnippetExplorerListenerHelper;
   // API provider for VSCode operations (set via setApiProvider)
@@ -171,6 +173,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
           const index = this.snippetList.findIndex(s => s.uid === message.data.uid);
           if (index !== -1) {
             this.snippetList.splice(index, 1);
+            this.isModified = true;
             //
             // Edit and active could be 2 different items
             // But it is always a single edit item
@@ -218,8 +221,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
           const snippet = this.snippetList.find(s => s.uid === message.data.uid);
           console.log("UPDATE SNIPPET ITEM: ", message);
           if (snippet) {
-
             Object.assign(snippet, message.data);
+            this.isModified = true;
           }
           // Reset the editable snippet item
           this.editUid = "";
@@ -237,6 +240,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
               Object.entries(message.data).filter(([_, v]) => v !== undefined)
             )
           };
+          this.isModified = true;
           break;
         }
         case 'getAutoComplete': {
@@ -263,6 +267,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
     //
     const insertIndex = this.activeUid !== "" ? this.snippetList.findIndex(s => s.uid === this.activeUid) + 1 : this.snippetList.length;
     this.snippetList.splice(insertIndex, 0, newItem);
+    this.isModified = true;
 
     //
     // Create a new snippet item on the UI side too
@@ -287,6 +292,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
               this.snippetHead = { title: "", description: "", path: ""};
               this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: ""};
               this.currentSnippetFullPath = '';
+              this.isModified = false;
               
               // Reset the listener's active file
               if (this.listenerHelper) {
@@ -350,10 +356,36 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         }
       }
 
-      // reset edit and active states
+      // reset edit, active and modified states
       this.editUid = '';
       this.activeUid = '';
+      this.isModified = false;
       this.refresh();
+  }
+
+  public async activateNode(nodePath: string): Promise<void> {
+    if (this.isModified && this.currentSnippetFullPath !== '') {
+      const snippetName = this.fsWrapper.getBasename(this.currentSnippetFullPath);
+      const result = await this.apiProvider.showWarningMessage(
+        `Save changes to "${snippetName}"?`,
+        true,
+        'Save',
+        "Don't Save"
+      );
+      if (result === undefined) {
+        return; // Cancel — keep current snippet open
+      }
+      if (result === 'Save') {
+        this.saveSnippetToFile({
+          title: this.snippetHeadProposal.title,
+          description: this.snippetHeadProposal.description,
+          path: this.snippetHeadProposal.path,
+          snippets: this.snippetList
+        });
+      }
+    }
+    const { error, snippets, head } = this.readSnippetFromFileItem(nodePath);
+    this.loadSnippetFromJSON(error, snippets, head);
   }
 
 
@@ -651,9 +683,7 @@ class SnippetExplorerListenerHelper implements SnippetExplorerListener {
 
   onNodeActivate(nodePath: string, isFolder: boolean): void {
     if (!isFolder) {
-      // Only handle file activation (snippet files)
-      const { error, snippets, head } = this.handler.readSnippetFromFileItem(nodePath);
-      this.handler.loadSnippetFromJSON(error, snippets, head);
+      this.handler.activateNode(nodePath);
     }
   }
 

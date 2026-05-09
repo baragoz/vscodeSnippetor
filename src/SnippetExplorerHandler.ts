@@ -171,6 +171,17 @@ export class SnippetExplorerHandler implements ISnippetorWebViewHandler {
           await this.openConfig();
           break;
         }
+        case 'showError': {
+          this.apiProvider.showErrorMessage(message.message);
+          break;
+        }
+        case 'showConfirm': {
+          const result = await this.apiProvider.showWarningMessage(
+            message.message, true, 'Confirm'
+          );
+          this.sendCallback(true, '', message.callbackId, { confirmed: result === 'Confirm' });
+          break;
+        }
       }
   }
 
