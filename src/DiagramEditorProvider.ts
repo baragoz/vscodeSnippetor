@@ -15,6 +15,12 @@ import { UmlDiagramDocument } from './UmlDiagramDocument';
  * in-webview undo/redo is NOT bridged into VS Code's native undo stack. The whole
  * diagram is treated as a single opaque content source — VS Code only sees
  * dirty/clean via `contentChanged`, never individual edits.
+ *
+ * Diagram *type* selection (classDiagram/packageDiagram/...) is entirely an
+ * embedded-editor concern (see media/umlsync/newDiagramDialog.js) — this provider
+ * never prompts natively. A document with no usable type yet (new/empty file,
+ * invalid JSON, missing/unrecognized nameTemplate) is opened as-is; the webview's
+ * init.js detects that and shows the picker itself.
  */
 export class DiagramEditorProvider implements vscode.CustomEditorProvider<UmlDiagramDocument> {
   private readonly _onDidChangeCustomDocument =
@@ -39,8 +45,27 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<UmlDia
     _token: vscode.CancellationToken
   ): UmlDiagramDocument {
     const content = this.fsWrapper.readFile(uri.fsPath);
-    const json = JSON.parse(content);
-    return new UmlDiagramDocument(uri, json);
+    return new UmlDiagramDocument(uri, this.parseDiagramJson(content));
+  }
+
+  /**
+   * Parses a .umlsync file's content, tolerating the file being empty or not
+   * valid JSON (e.g. a file created via VS Code's plain "New File" rather than
+   * "New UML Diagram") — never throws. Does NOT validate `nameTemplate`; a
+   * document with no usable diagram type is opened as-is and it's up to the
+   * webview (init.js) to notice and show the type picker.
+   */
+  private parseDiagramJson(content: string): any {
+    try {
+      const trimmed = content.trim();
+      if (trimmed.length === 0) {
+        return {};
+      }
+      const parsed = JSON.parse(trimmed);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
   }
 
   resolveCustomEditor(

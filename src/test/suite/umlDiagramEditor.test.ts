@@ -6,6 +6,14 @@ import * as vscode from 'vscode';
 
 suite('UML Diagram Editor Test Suite', () => {
 
+    suiteSetup(async () => {
+        // Don't rely on onStartupFinished having already fired by the time this
+        // suite runs — mocha's file execution order isn't guaranteed, so this
+        // suite can start before extension.test.ts's own activate() call.
+        const ext = vscode.extensions.getExtension('Snippetor.sw-architecture-snippets');
+        await ext?.activate();
+    });
+
     test('snippetor.uml.newDiagram command is registered', async () => {
         const commands = await vscode.commands.getCommands(true);
         assert.ok(commands.includes('snippetor.uml.newDiagram'));

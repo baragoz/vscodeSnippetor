@@ -3,6 +3,10 @@
 // Runs inside the webview sandbox — never touches vscode directly, only
 // acquireVsCodeApi()/postMessage, per the isolation rule in AGENTS.md.
 
+import { DIAGRAM_TYPES, showNewDiagramDialog } from './newDiagramDialog.js';
+
+const DIAGRAM_TYPE_KEYS = DIAGRAM_TYPES.map((item) => item.diagram);
+
 const vscodeApi = acquireVsCodeApi();
 
 let editor;
@@ -31,9 +35,18 @@ async function handleInit(json) {
     await ensureEditor();
     if (json && Array.isArray(json.elements)) {
         editor.loadDiagram(json, { editmode: true });
-    } else if (json && json.nameTemplate) {
-        editor.createDiagram(json.nameTemplate, { editmode: true });
+        return;
     }
+    if (json && DIAGRAM_TYPE_KEYS.includes(json.nameTemplate)) {
+        editor.createDiagram(json.nameTemplate, { editmode: true });
+        return;
+    }
+    // No usable diagram type on disk yet — new file, invalid JSON, or an
+    // unrecognized nameTemplate. Picking the type is entirely the embedded
+    // editor's concern now (no native VS Code prompt on the extension side).
+    const nameTemplate = await showNewDiagramDialog();
+    editor.createDiagram(nameTemplate, { editmode: true });
+    post({ command: 'contentChanged' });
 }
 
 window.addEventListener('message', (event) => {

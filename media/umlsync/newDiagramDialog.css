@@ -1,0 +1,130 @@
+/* New Diagram dialog — layout adapted from umlsync_website's app-new-diagram
+   component, recolored with --vscode-* tokens so it sits natively in whichever
+   VS Code theme is active. The diagram-type preview images have a baked-in
+   white background (only sequence_diagram.png is transparent), so their card
+   surface is intentionally kept light in every theme, like a paper preview,
+   rather than trying to force them onto a themed dark surface. */
+
+.uml-nd-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 999999;
+}
+
+.uml-nd-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    width: min(720px, 90vw);
+    max-height: 85vh;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--vscode-editorWidget-background, #f5f9fe);
+    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground, #1e1e1e));
+    border: 1px solid var(--vscode-widget-border, transparent);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    overflow: hidden;
+}
+
+.uml-nd-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.uml-nd-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 4px;
+    box-sizing: border-box;
+    background: var(--vscode-button-background, #0ac96e);
+    color: var(--vscode-button-foreground, #fff);
+    border-radius: 6px;
+}
+
+.uml-nd-title {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.uml-nd-subtitle {
+    display: block;
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground, #888);
+}
+
+.uml-nd-divider {
+    height: 1px;
+    flex-shrink: 0;
+    background: var(--vscode-widget-border, var(--vscode-panel-border, #454545));
+}
+
+.uml-nd-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    overflow-y: auto;
+    padding-top: 4px;
+}
+
+.uml-nd-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 4px;
+    cursor: pointer;
+    border-radius: 8px;
+    outline: none;
+}
+
+.uml-nd-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 96px;
+    box-sizing: border-box;
+    background: #ffffff;
+    border: 1px solid var(--vscode-widget-border, #d3d3d3);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.uml-nd-card-icon img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.uml-nd-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--vscode-foreground);
+}
+
+.uml-nd-card:hover .uml-nd-card-icon,
+.uml-nd-card:focus-visible .uml-nd-card-icon {
+    border-color: var(--vscode-focusBorder, #0ac96e);
+}
+
+.uml-nd-card:hover .uml-nd-card-title,
+.uml-nd-card:focus-visible .uml-nd-card-title {
+    color: var(--vscode-focusBorder, #0ac96e);
+}
+
+.uml-nd-card:focus-visible {
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder, #0ac96e);
+}

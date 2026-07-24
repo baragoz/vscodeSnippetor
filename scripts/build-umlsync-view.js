@@ -45,8 +45,12 @@ function copyDirRecursive(srcDir, dstDir) {
 //    runtime by DiagramEditorProvider.getHtml(), same split as build-explorer-view.js)
 copyFile(path.join(mediaDir, 'umlEditor.template.html'), path.join(outDir, 'umlEditor.html'));
 
-// 2. Adapter script
+// 2. Adapter script + New Diagram dialog (layout adapted from umlsync_website,
+//    recolored with --vscode-* tokens — see newDiagramDialog.css)
 copyFile(path.join(mediaDir, 'init.js'), path.join(outDir, 'init.js'));
+copyFile(path.join(mediaDir, 'newDiagramDialog.js'), path.join(outDir, 'newDiagramDialog.js'));
+copyFile(path.join(mediaDir, 'newDiagramDialog.css'), path.join(outDir, 'newDiagramDialog.css'));
+copyDirRecursive(path.join(mediaDir, 'images'), path.join(outDir, 'images'));
 
 // 3. umlsync editor bundle — preserve dist/editor's own relative layout
 //    (style.css has no external references, but assets/js/jquery.editable.js and

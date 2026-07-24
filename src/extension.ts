@@ -6,14 +6,6 @@ import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 import { UmlFilesystemWrapper } from './UmlFilesystemWrapper';
 import { DiagramEditorProvider } from './DiagramEditorProvider';
 
-const UML_NAME_TEMPLATES = [
-  'classDiagram',
-  'packageDiagram',
-  'componentsDiagram',
-  'stateDiagram',
-  'sequenceDiagram'
-];
-
 export function activate(context: vscode.ExtensionContext) {
   // Create a single filesystem wrapper instance
   const fsWrapper = new SnippetorFilesystemsWrapper();
@@ -166,18 +158,12 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     //
-    // NEW UML DIAGRAM — prompts for a diagram type, then whether to create it
-    // among project files or inside Snippetor storage (Drafts/LocalSpace/...),
-    // writes a starter file, and opens it in the UML custom editor.
+    // NEW UML DIAGRAM — prompts for where to create it (project files or
+    // Snippetor storage), writes an empty starter file, and opens it in the UML
+    // custom editor. Diagram *type* is picked inside the embedded editor itself
+    // (see media/umlsync/newDiagramDialog.js), not via a native VS Code prompt.
     //
     vscode.commands.registerCommand('snippetor.uml.newDiagram', async () => {
-      const nameTemplate = await vscode.window.showQuickPick(UML_NAME_TEMPLATES, {
-        placeHolder: 'Select a diagram type'
-      });
-      if (!nameTemplate) {
-        return;
-      }
-
       const locationPick = await vscode.window.showQuickPick(
         [
           { label: 'Project Files', detail: 'Save alongside your workspace files' },
@@ -228,7 +214,10 @@ export function activate(context: vscode.ExtensionContext) {
         targetAbsolutePath = fsWrapper.resolve(mappedPath);
       }
 
-      umlFsWrapper.writeFile(targetAbsolutePath, JSON.stringify({ nameTemplate }, null, 2));
+      // No nameTemplate here on purpose — picking the diagram type is the
+      // embedded editor's job (see media/umlsync/newDiagramDialog.js). Opening
+      // this empty file immediately triggers that dialog inside the webview.
+      umlFsWrapper.writeFile(targetAbsolutePath, JSON.stringify({}, null, 2));
       await vscode.commands.executeCommand(
         'vscode.openWith',
         vscode.Uri.file(targetAbsolutePath),
