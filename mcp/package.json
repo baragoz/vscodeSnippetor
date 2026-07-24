@@ -1,0 +1,25 @@
+{
+  "name": "umlsync-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "MCP server exposing tools to build/edit umlsync .umlsync diagram files (Mode A, headless file-based editing). See ../Readme.mcp.md.",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "bin": {
+    "umlsync-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "start": "node ./dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
+  }
+}

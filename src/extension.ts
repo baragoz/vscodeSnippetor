@@ -5,6 +5,7 @@ import { SnippetBaseProvider } from './SnippetBaseProvider';
 import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 import { UmlFilesystemWrapper } from './UmlFilesystemWrapper';
 import { DiagramEditorProvider } from './DiagramEditorProvider';
+import { UmlMcpServerProvider } from './UmlMcpServerProvider';
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a single filesystem wrapper instance
@@ -41,6 +42,19 @@ export function activate(context: vscode.ExtensionContext) {
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
+
+  //
+  // MCP SERVER — publishes umlsync-mcp (see mcp/, Readme.mcp.md) to VS Code's
+  // own MCP-consuming features, run via the editor's embedded Node.js. Guarded
+  // since it needs a VS Code version with vscode.lm.registerMcpServerDefinitionProvider.
+  //
+  if (vscode.lm?.registerMcpServerDefinitionProvider) {
+    const umlMcpProvider = new UmlMcpServerProvider(context);
+    context.subscriptions.push(
+      umlMcpProvider,
+      vscode.lm.registerMcpServerDefinitionProvider('vscodeSnippetor.umlsyncMcp', umlMcpProvider)
+    );
+  }
 
   // TODO:CHECK why it is snippet view instead of explorer view?
   context.subscriptions.push(

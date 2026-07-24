@@ -5,7 +5,7 @@
   "description": "Extension to manage software architecture snippets with explorer view and snippet capture",
   "version": "0.0.5",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.101.0"
   },
   "activationEvents": [
     "onStartupFinished"
@@ -47,6 +47,12 @@
           }
         ],
         "priority": "default"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "vscodeSnippetor.umlsyncMcp",
+        "label": "umlsync diagram tools"
       }
     ],
     "commands": [
@@ -158,9 +164,10 @@
   "scripts": {
     "build:explorer": "node scripts/build-explorer-view.js",
     "build:umlsync": "node scripts/build-umlsync-view.js",
+    "build:mcp": "node scripts/build-mcp.js",
     "build:test-page": "node scripts/build-test-page.js",
     "build:bundle": "node scripts/build-bundle.js",
-    "compile": "npm run build:explorer && npm run build:umlsync && npm run build:bundle",
+    "compile": "npm run build:explorer && npm run build:umlsync && npm run build:mcp && npm run build:bundle",
     "compile:test": "tsc -p ./tsconfig.test.json && npm run build:test-page",
     "compile:vscode-test": "tsc -p ./tsconfig.vscode-test.json",
     "test-host": "vitest run",
@@ -169,7 +176,9 @@
   },
   "files": [
     "out",
-    "media"
+    "media",
+    "mcp/dist",
+    "mcp/node_modules"
   ],
   "resources": [
     "out/extension/media/snippetView.html",
@@ -186,7 +195,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.3",
-    "@types/vscode": "^1.80.0",
+    "@types/vscode": "^1.101.0",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.28.0",
