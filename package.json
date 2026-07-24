@@ -37,10 +37,26 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "vscodeSnippetor.umlEditor",
+        "displayName": "UML Diagram Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.umlsync"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
         "command": "swArchitectureSnippets.addSelectionToSnippet",
         "title": "Add Selection to Working Snippet"
+      },
+      {
+        "command": "snippetor.uml.newDiagram",
+        "title": "New UML Diagram"
       },
       {
         "command": "snippetExplorer.refresh",
@@ -141,9 +157,10 @@
   },
   "scripts": {
     "build:explorer": "node scripts/build-explorer-view.js",
+    "build:umlsync": "node scripts/build-umlsync-view.js",
     "build:test-page": "node scripts/build-test-page.js",
     "build:bundle": "node scripts/build-bundle.js",
-    "compile": "npm run build:explorer && npm run build:bundle",
+    "compile": "npm run build:explorer && npm run build:umlsync && npm run build:bundle",
     "compile:test": "tsc -p ./tsconfig.test.json && npm run build:test-page",
     "compile:vscode-test": "tsc -p ./tsconfig.vscode-test.json",
     "test-host": "vitest run",
@@ -164,12 +181,17 @@
     "out/extension/media/images/light_error.png",
     "out/extension/media/images/light_plus.png"
   ],
+  "dependencies": {
+    "umlsync": "file:../umlsync"
+  },
   "devDependencies": {
     "@types/node": "^24.0.3",
     "@types/vscode": "^1.80.0",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.28.0",
+    "jquery": "3.7.1",
+    "jquery-ui-dist": "1.13.3",
     "typescript": "^5.0.0",
     "vitest": "^3.2.4"
   }

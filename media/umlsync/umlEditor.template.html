@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>UML Diagram</title>
+    <link rel="stylesheet" href="{{media_path}}/vendor/jquery-ui/jquery-ui.min.css" />
+    <link rel="stylesheet" href="{{media_path}}/vendor/umlsync/style.css" />
+    <link rel="stylesheet" href="{{media_path}}/vendor/umlsync/assets/styles/themes/vscode.dark.css" />
+    <link rel="stylesheet" href="{{media_path}}/vendor/umlsync/assets/styles/themes/vscode.dark-high-contrast.css" />
+    <link rel="stylesheet" href="{{media_path}}/vendor/umlsync/assets/styles/themes/vscode.light.css" />
+    <link rel="stylesheet" href="{{media_path}}/vendor/umlsync/assets/styles/themes/vscode.light-high-contrast.css" />
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #uml-root {
+            width: 100%;
+            height: 100vh;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="uml-root"></div>
+
+    <script src="{{media_path}}/vendor/jquery/jquery.js"></script>
+    <script src="{{media_path}}/vendor/jquery-ui/jquery-ui.min.js"></script>
+    <script src="{{media_path}}/vendor/umlsync/assets/js/jquery.editable.js"></script>
+    <script nonce="{{nonce}}">
+        window.__umlsyncVendorBase = "{{media_path}}/vendor/umlsync";
+    </script>
+    <script type="module" src="{{media_path}}/init.js"></script>
+</body>
+
+</html>
