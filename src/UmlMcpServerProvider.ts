@@ -41,7 +41,10 @@ export class UmlMcpServerProvider implements vscode.McpServerDefinitionProvider,
       {
         ELECTRON_RUN_AS_NODE: '1',
         UMLSYNC_MCP_ROOT: workspaceFolder.uri.fsPath
-      }
+      },
+      // Lets VS Code detect "tools changed" and prompt a refresh across
+      // extension updates instead of caching a stale tool list.
+      this.context.extension.packageJSON.version
     );
     definition.cwd = workspaceFolder.uri;
     return [definition];

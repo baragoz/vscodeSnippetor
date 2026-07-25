@@ -177,8 +177,7 @@
   "files": [
     "out",
     "media",
-    "mcp/dist",
-    "mcp/node_modules"
+    "mcp/dist"
   ],
   "resources": [
     "out/extension/media/snippetView.html",

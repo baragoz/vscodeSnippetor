@@ -49,6 +49,26 @@ This flexibility allows you to choose your own backend and storage method, makin
   * **Supports organizing snippets into folders:** Keep your knowledge base tidy and easy to navigate.
   * **Lightweight and privacy-first:** No telemetry, no remote servers, no usage data collected.
   * **Shareable data:** Easily share snippet folders with your team.
+  * **Visual UML diagrams:** Create and edit class, package, component, state, and sequence diagrams in a native editor tab (`.umlsync` files).
+
+-----
+
+## 🔌 MCP Server — AI-Driven Diagram Editing
+
+Snippetor ships an [MCP](https://modelcontextprotocol.io) server (`mcp/`) that
+lets an AI agent build and edit `.umlsync` diagrams programmatically — create
+a diagram, add classes/packages/components, wire up connectors — without a
+human dragging shapes on the canvas. See [Readme.mcp.md](Readme.mcp.md) for
+the full list of tools.
+
+  * **Works out of the box in VS Code:** the extension registers the server
+    automatically, launched via VS Code's own embedded Node.js — no separate
+    Node.js install, and no manual MCP configuration. Just open Copilot Chat's
+    tools picker and look for **"umlsync diagram tools"**.
+  * **Also usable from other MCP clients** (Claude Code, etc.) by pointing
+    them at `mcp/dist/index.js` over stdio.
+  * **Same privacy-first model as the rest of the extension:** it only reads
+    and writes files on your machine — nothing is sent to a remote server.
 
 -----
 
@@ -66,8 +86,10 @@ npm install
 
 | Command | Description |
 |---|---|
-| `npm run compile` | Full build — compiles TypeScript and assembles the webview HTML |
+| `npm run compile` | Full build — explorer webview, UML editor webview, MCP server, and the TypeScript extension bundle |
 | `npm run build:explorer` | Rebuilds only the explorer webview HTML from `media/js/` and `media/css/` |
+| `npm run build:umlsync` | Rebuilds the UML diagram editor webview (copies the `umlsync` vendor bundle + assembles `umlEditor.html`) |
+| `npm run build:mcp` | Type-checks and bundles the MCP server (`mcp/` → `mcp/dist/index.js`); see [Readme.mcp.md](Readme.mcp.md) |
 | `npm run build:bundle` | Compiles the TypeScript extension bundle |
 | `npm run compile:test` | Compiles the test TypeScript and builds the test page |
 
@@ -84,7 +106,6 @@ npm install
 
 We have exciting plans for Snippetor to make it even more powerful. Stay tuned for:
 
-  * **🔧 UML diagram support:** Add visual diagrams to your snippets to make complex sequences more understandable.
   * **🌐 Public snippet sharing:** An **opt-in** feature to share your knowledge with the open-source community.
   * **💡 Team folders and collaboration tools:** Enhanced features for seamless team workflows.
 
