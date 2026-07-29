@@ -44,6 +44,20 @@ export interface ISnippetorApiProvider {
   postMessage(message: any): void;
 
   /**
+   * Show a native "Save As" dialog and return the chosen absolute path,
+   * or undefined if the user cancelled.
+   */
+  showSaveDialog(options: {
+    defaultAbsolutePath?: string;
+    filters?: { [name: string]: string[] };
+  }): Promise<string | undefined>;
+
+  /**
+   * Reveal/focus a contributed view by id (e.g. the Working Snippet sidebar).
+   */
+  focusView(viewId: string): Promise<void>;
+
+  /**
    * Get the workspace folder path for a given URI
    */
   getWorkspaceFolder(uri: vscode.Uri): string | undefined;

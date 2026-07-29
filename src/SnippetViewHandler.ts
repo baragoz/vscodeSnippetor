@@ -1,4 +1,3 @@
-import { SnippetExplorerListener } from './SnippetExplorerHandler';
 import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 import { ISnippetorFilesystemWrapper } from './ISnippetorFilesystemWrapper';
@@ -7,6 +6,15 @@ function generateUID(): string {
   return 'uid-' + Math.random().toString(36).substring(2, 10);
 }
 
+/**
+ * Handles the Working Snippet sidebar (`workingSnippetView`).
+ *
+ * A snippet is a plain project file (see Readme.snippets.md) — there is no
+ * virtual storage layer. `currentSnippetFullPath` is the single source of
+ * truth for "which real file, if any, is currently open"; saving either
+ * overwrites that path or, if nothing is open yet, prompts a native
+ * "Save As" dialog (see `saveCurrentOrPrompt` / `saveAs`).
+ */
 export class SnippetViewHandler implements ISnippetorWebViewHandler {
   //
   // Error message
@@ -29,24 +37,16 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   // Cached path + selected line
   private cachedFilePath: string = '';
   private cachedSnippetLine: string = '';
-  // ref to the explorer handler (will be set after creation)
-  private explorer: any; // SnippetExplorerHandler - using any to avoid circular dependency
   // Filesystem wrapper instance
   private fsWrapper: ISnippetorFilesystemWrapper;
-  // Full path of currently open snippet file (absolute path)
+  // Absolute path of the currently open snippet file ('' if none/unsaved)
   private currentSnippetFullPath: string = '';
   // True when snippet has unsaved changes
   private isModified: boolean = false;
-  // Listener helper instance
-  private listenerHelper?: SnippetExplorerListenerHelper;
   // API provider for VSCode operations (set via setApiProvider)
   private apiProvider!: ISnippetorApiProvider;
 
-  constructor(
-    explorer: any, // SnippetExplorerHandler - using any to avoid circular dependency
-    fsWrapper: ISnippetorFilesystemWrapper
-  ) {
-    this.explorer = explorer;
+  constructor(fsWrapper: ISnippetorFilesystemWrapper) {
     this.fsWrapper = fsWrapper;
   }
 
@@ -61,32 +61,20 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
       const fileExt = document.fileName.split('.').pop()?.toLowerCase();
       const allowedExts = ['c', 'cpp', 'cc', 'h', 'hpp', 'py', 'java', 'kt', 'xml', 'js', 'ts', 'jsx', 'tsx', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'html', 'css', 'json', 'yaml', 'yml', 'sh', 'md'];
 
-      console.log("Selection changed: ", {
-        file: document.fileName,
-        selection: selection,
-        fileExt: fileExt
-      });
       if (!selection.isEmpty && fileExt && allowedExts.includes(fileExt)) {
         const line = selection.active.line + 1;
         const fullPath = document.fileName;
-        console.log("Selected line: ", line, " in file: ", fullPath);
         const workspaceFolder = this.apiProvider.getWorkspaceFolder(document.uri);
 
-        console.log("Selected file workspace folder: ", workspaceFolder);
-        const relativePath = workspaceFolder 
-            ? this.fsWrapper.computeRelativePath(workspaceFolder, fullPath) 
+        const relativePath = workspaceFolder
+            ? this.fsWrapper.computeRelativePath(workspaceFolder, fullPath)
             : fullPath;
 
-        console.log("Selected file relative path: ", relativePath);
         const fileName = this.fsWrapper.getBasenameFromAbsolute(relativePath);
         const snippetLine = `${fileName}:${line}`;
 
-        console.log("Selected file name : ", fileName);
-
         this.cachedFilePath = relativePath;
         this.cachedSnippetLine = snippetLine;
-
-        console.log("Cached file path and line: ", this.cachedFilePath, this.cachedSnippetLine);
 
         if (this.editUid !== "") {
           this.apiProvider.postMessage({
@@ -106,11 +94,6 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   public setApiProvider(apiProvider: ISnippetorApiProvider): void {
     this.apiProvider = apiProvider;
     this.setupSelectionListener();
-  }
-
-  // Set explorer handler (called after both handlers are created)
-  public setExplorer(explorer: any): void {
-    this.explorer = explorer;
   }
 
   // Implement ISnippetorWebViewHandler interface
@@ -136,24 +119,10 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
           this.refresh();
           break;
         case 'saveSnippet':
-          //
-          // call it directly
-          //
-          this.saveSnippetToFile({
-            title: this.snippetHeadProposal.title,
-            description: this.snippetHeadProposal.description,
-            path: message.data.path,
-            snippets: this.snippetList
-          });
-
-          // reset state
-          this.resetSnippetState();
-
-          // refresh UI
-          this.refresh();
-
-          // Extra message. TODO: may be remove it OR show it in the working snippet view
-          this.apiProvider.showInformationMessage('Snippet saved');
+          await this.saveCurrentOrPrompt();
+          break;
+        case 'saveSnippetAs':
+          await this.saveAs();
           break;
         //
         //  Snippet items API
@@ -219,7 +188,6 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         //
         case 'updateSnippetItem': {
           const snippet = this.snippetList.find(s => s.uid === message.data.uid);
-          console.log("UPDATE SNIPPET ITEM: ", message);
           if (snippet) {
             Object.assign(snippet, message.data);
             this.isModified = true;
@@ -233,19 +201,14 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         //
         case 'updateSnippetHead': {
           // NOTE: we do not change snippet head, just proposal only
-          // Save title/description/path
+          // Save title/description only (path is no longer form-entered)
           this.snippetHeadProposal = {
             ...this.snippetHeadProposal,
             ...Object.fromEntries(
-              Object.entries(message.data).filter(([_, v]) => v !== undefined)
+              Object.entries(message.data).filter(([k, v]) => v !== undefined && k !== 'path')
             )
           };
           this.isModified = true;
-          break;
-        }
-        case 'getAutoComplete': {
-          const result = this.getAutoCompletion(message.data.path);
-          this.sendMessageToView("autocompleteCallback", result);
           break;
         }
       }
@@ -257,10 +220,10 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
 
   public newSnippetItem(label: string) {
     const uid = generateUID();
-    const newItem = { 
-      filePath: this.cachedFilePath, 
-      line: this.cachedSnippetLine, 
-      uid, 
+    const newItem = {
+      filePath: this.cachedFilePath,
+      line: this.cachedSnippetLine,
+      uid,
       text:"" };
     //
     // insert right after an active snippet item
@@ -286,18 +249,13 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   }
 
   private resetSnippetState() {
-              // empty local snippet list
-              this.snippetList = [];
-              this.errorMessage = "";
-              this.snippetHead = { title: "", description: "", path: ""};
-              this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: ""};
-              this.currentSnippetFullPath = '';
-              this.isModified = false;
-              
-              // Reset the listener's active file
-              if (this.listenerHelper) {
-                this.listenerHelper.setActiveFile('');
-              }
+    // empty local snippet list
+    this.snippetList = [];
+    this.errorMessage = "";
+    this.snippetHead = { title: "", description: "", path: ""};
+    this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: ""};
+    this.currentSnippetFullPath = '';
+    this.isModified = false;
   }
 
   //
@@ -310,15 +268,33 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
     this.activeUid = '';
     this.snippetHead = { title: "", description: "", path: ""};
     this.snippetHeadProposal= { title: "", description: "", path: ""};
+    this.currentSnippetFullPath = '';
+    this.isModified = false;
     this.refresh();
   }
 
   /**
-   * Close snippet (used by listener helper)
+   * Open a snippet file (by absolute path) into the sidebar. Prompts to save
+   * unsaved changes to the currently open snippet first, if any.
    */
-  public closeSnippet(): void {
-    this.resetSnippetState();
-    this.refresh();
+  public async openSnippetFile(absolutePath: string): Promise<void> {
+    if (this.isModified && this.currentSnippetFullPath !== '') {
+      const snippetName = this.fsWrapper.basename(this.currentSnippetFullPath);
+      const result = await this.apiProvider.showWarningMessage(
+        `Save changes to "${snippetName}"?`,
+        true,
+        'Save',
+        "Don't Save"
+      );
+      if (result === undefined) {
+        return; // Cancel — keep current snippet open
+      }
+      if (result === 'Save') {
+        this.writeSnippetToPath(this.currentSnippetFullPath);
+      }
+    }
+    const { error, snippets, head } = this.readSnippetFromFileItem(absolutePath);
+    this.loadSnippetFromJSON(error, snippets, head);
   }
 
   //
@@ -347,13 +323,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         this.snippetHeadProposal = Object.assign({}, head);
         // Copy snippets list from saved data in file
         this.snippetList = snippetList;
-        // Store full path: convert relative path (like /Drafts/file.snippet) to full path
-        this.currentSnippetFullPath = head.path ? this.fsWrapper.resolve(head.path) : '';
-        
-        // Update the listener's active file
-        if (this.listenerHelper) {
-          this.listenerHelper.setActiveFile(this.currentSnippetFullPath);
-        }
+        // head.path is already the real absolute path of the file
+        this.currentSnippetFullPath = head.path;
       }
 
       // reset edit, active and modified states
@@ -363,103 +334,65 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
       this.refresh();
   }
 
-  public async activateNode(nodePath: string): Promise<void> {
-    if (this.isModified && this.currentSnippetFullPath !== '') {
-      const snippetName = this.fsWrapper.getBasename(this.currentSnippetFullPath);
-      const result = await this.apiProvider.showWarningMessage(
-        `Save changes to "${snippetName}"?`,
-        true,
-        'Save',
-        "Don't Save"
-      );
-      if (result === undefined) {
-        return; // Cancel — keep current snippet open
-      }
-      if (result === 'Save') {
-        this.saveSnippetToFile({
-          title: this.snippetHeadProposal.title,
-          description: this.snippetHeadProposal.description,
-          path: this.snippetHeadProposal.path,
-          snippets: this.snippetList
-        });
-      }
-    }
-    const { error, snippets, head } = this.readSnippetFromFileItem(nodePath);
-    this.loadSnippetFromJSON(error, snippets, head);
-  }
-
-
   //
-  // showSaveDialog - sends message to webview
+  // showSaveDialog - sends message to webview (title/description review, no path field)
   //
-  public showSaveDialogToView() {
-    const selectedPath = this.getSelectedPath();
+  public promptSaveDialog() {
     this.apiProvider.postMessage({
       command: 'showSaveDialog',
-      data: {
-        selectedPath
-      }
+      data: {}
     });
   }
 
   /**
-   * Save snippet to file
+   * Save button: overwrite the currently open file, or — if nothing is open
+   * yet — fall back to a native "Save As" dialog (create).
    */
-  private saveSnippetToFile(payload: any) {
-    if (!payload?.path || typeof payload.path !== 'string') {
-      this.apiProvider.showErrorMessage('Invalid snippet path.');
+  private async saveCurrentOrPrompt(): Promise<void> {
+    if (this.currentSnippetFullPath !== '') {
+      this.writeSnippetToPath(this.currentSnippetFullPath);
       return;
     }
+    await this.saveAs();
+  }
 
-    // payload.path is relative path (e.g., "Drafts/subfolder/file.snippet")
-    const relativePath = payload.path;
-    const parentDir = this.fsWrapper.dirname(relativePath);
-
-    if (!this.fsWrapper.exists(parentDir)) {
-      this.apiProvider.showErrorMessage(`Directory does not exist: ${parentDir}`);
-      return;
+  /**
+   * Always prompts a native "Save As" dialog, regardless of whether a file
+   * is already open.
+   */
+  private async saveAs(): Promise<void> {
+    const target = await this.apiProvider.showSaveDialog({
+      defaultAbsolutePath: this.currentSnippetFullPath || undefined,
+      filters: { 'Snippet': ['snippet.json'] }
+    });
+    if (!target) {
+      return; // user cancelled
     }
+    this.writeSnippetToPath(target);
+  }
 
-    // Exclude path from payload
-    const {path: _ignored, ...content} = payload;
-    const jsonData = JSON.stringify(content, null, 2);
+  /**
+   * Write the current title/description/snippet list straight to an
+   * absolute path, no dialog.
+   */
+  private writeSnippetToPath(absolutePath: string): void {
+    const content = {
+      title: this.snippetHeadProposal.title,
+      description: this.snippetHeadProposal.description,
+      snippets: this.snippetList
+    };
 
     try {
-      this.fsWrapper.writeFile(relativePath, jsonData, 'utf-8');
-      const absolutePath = this.fsWrapper.toAbsolutePath(relativePath);
+      this.fsWrapper.writeFile(absolutePath, JSON.stringify(content, null, 2), 'utf-8');
+      this.currentSnippetFullPath = absolutePath;
+      this.snippetHead = { ...this.snippetHeadProposal, path: absolutePath };
+      this.snippetHeadProposal = { ...this.snippetHead };
+      this.isModified = false;
       this.apiProvider.showInformationMessage(`Snippet saved to: ${absolutePath}`);
-      // Notify explorer view to add the new snippet if parent folder is expanded
-      this.explorer.notifyNewSnippetCreated(relativePath, parentDir);
+      this.refresh();
     } catch (err: any) {
-      this.apiProvider.showErrorMessage(
-          `Failed to save snippet: ${err.message}`);
+      this.apiProvider.showErrorMessage(`Failed to save snippet: ${err.message}`);
     }
-  }
-
-  /**
-   * Get auto-completion for path
-   */
-  private getAutoCompletion(relativePath: string): {
-    path: string,
-    error: string,
-    autocomplete: {name: string; isDirectory: boolean}[]
-  } {
-    // Delegate to wrapper
-    return this.fsWrapper.getAutoCompletion(relativePath);
-  }
-
-  /**
-   * Get selected path (default to Drafts)
-   */
-  private getSelectedPath() {
-    return 'Drafts/';
-  }
-
-  private sendMessageToView(action:string, data:any) {
-    this.apiProvider.postMessage({
-      command: action,
-      data: data
-    });
   }
 
   private refresh() {
@@ -476,282 +409,60 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   }
 
   /**
-   * Send active file update to the view
+   * Read snippet from an absolute file path
    */
-  public sendActiveFileUpdate(action: string, newFileName: string): void {
-    if (this.currentSnippetFullPath !== '') {
-      const newRelativePath = this.fsWrapper.absoluteToRelativePathWithSlash(newFileName);
-      
-      // Update both original and proposal paths
-      this.snippetHead.path = newRelativePath;
-      this.snippetHeadProposal.path = newRelativePath;
-      this.currentSnippetFullPath = newFileName;
-      
-      this.refresh();
-      this.apiProvider.showInformationMessage(`Snippet ${action}: ${this.fsWrapper.getBasename(newFileName)}`);
-    }
-  }
-
-  /**
-   * Get the explorer listener interface implementation
-   */
-  public getExplorerListener(): SnippetExplorerListener {
-    if (!this.listenerHelper) {
-      this.listenerHelper = new SnippetExplorerListenerHelper(this);
-    }
-    return this.listenerHelper;
-  }
-
-  /**
-   * Read snippet from file item
-   * @param relativePath Relative path to the snippet file (e.g., "Drafts/file.snippet")
-   */
-  public readSnippetFromFileItem(relativePath: string): {
+  public readSnippetFromFileItem(absolutePath: string): {
     error: string; snippets: any[];
     head: {title: string; description: string; path: string};
   } {
-    // relativePath is relative path (e.g., "Drafts/file.snippet")
-    if (!this.fsWrapper.exists(relativePath)) {
+    if (!this.fsWrapper.exists(absolutePath)) {
       this.apiProvider.showErrorMessage('Snippet file not found.');
       return {
         error: 'File not found.',
         snippets: [],
-        head: {title: '', description: '', path: relativePath}
+        head: {title: '', description: '', path: absolutePath}
+      };
+    }
+
+    const content = this.fsWrapper.readFile(absolutePath, 'utf-8');
+    const trimmed = content.trim();
+
+    // An empty file (e.g. created via VS Code's plain "New File") is a blank
+    // snippet waiting to be filled in, not an error — keep `path` set so the
+    // caller (loadSnippetFromJSON) treats this as "successfully opened" and
+    // Save writes straight back to this same file, no dialog.
+    if (trimmed === '') {
+      return {
+        error: '',
+        snippets: [],
+        head: {title: '', description: '', path: absolutePath}
       };
     }
 
     try {
-      const content = this.fsWrapper.readFile(relativePath, 'utf-8');
-      const json = JSON.parse(content);
+      const json = JSON.parse(trimmed);
 
       const title = typeof json.title === 'string' ? json.title : '';
       const description =
           typeof json.description === 'string' ? json.description : '';
 
-      const {title: _t, description: _d, ...snippets} = json;
-
       return {
         error: '',
-        snippets: json.snippets,
-        head: {title, description, path: relativePath}
+        snippets: Array.isArray(json.snippets) ? json.snippets : [],
+        head: {title, description, path: absolutePath}
       };
     } catch (err: any) {
-      this.apiProvider.showErrorMessage(
-          `Error reading snippet file: ${err.message}`);
+      // Not valid JSON. There's no tab to fix it by hand (see
+      // Readme.snippets.md — snippets never open as raw text), so the only
+      // path forward is to start a new snippet here; warn since Save will
+      // overwrite whatever was in the file.
+      this.apiProvider.showWarningMessage(
+          `"${this.fsWrapper.basename(absolutePath)}" isn't a valid snippet file yet — starting a new snippet here. Saving will overwrite its current content.`);
       return {
-        error: err.message,
+        error: '',
         snippets: [],
-        head: {title: '', description: '', path: relativePath}
+        head: {title: '', description: '', path: absolutePath}
       };
-    }
-  }
-
-  /**
-   * Helper methods for listener helper to access API provider methods
-   */
-  public showWarningMessage(message: string, ...items: string[]): Thenable<string | undefined>;
-  public showWarningMessage(message: string, modal: boolean, ...items: string[]): Thenable<string | undefined>;
-  public showWarningMessage(message: string, modalOrItem?: boolean | string, ...rest: string[]): Thenable<string | undefined> {
-    if (typeof modalOrItem === 'boolean') {
-      return this.apiProvider.showWarningMessage(message, modalOrItem, ...rest);
-    }
-    const allItems = typeof modalOrItem === 'string' ? [modalOrItem, ...rest] : rest;
-    return this.apiProvider.showWarningMessage(message, ...allItems);
-  }
-
-  public showInformationMessage(message: string, ...items: string[]): Thenable<string | undefined>;
-  public showInformationMessage(message: string, modal: boolean, ...items: string[]): Thenable<string | undefined>;
-  public showInformationMessage(message: string, modalOrItem?: boolean | string, ...rest: string[]): Thenable<string | undefined> {
-    if (typeof modalOrItem === 'boolean') {
-      return this.apiProvider.showInformationMessage(message, modalOrItem, ...rest);
-    }
-    const allItems = typeof modalOrItem === 'string' ? [modalOrItem, ...rest] : rest;
-    return this.apiProvider.showInformationMessage(message, ...allItems);
-  }
-
-  /**
-   * Get filesystem wrapper (for listener helper)
-   */
-  public getFsWrapper(): ISnippetorFilesystemWrapper {
-    return this.fsWrapper;
-  }
-}
-
-/**
- * Helper class that implements SnippetExplorerListener interface
- * and delegates to SnippetViewHandler
- */
-class SnippetExplorerListenerHelper implements SnippetExplorerListener {
-  private handler: SnippetViewHandler;
-  private fsWrapper: ISnippetorFilesystemWrapper;
-  private activeFile: string = '';
-
-  constructor(handler: SnippetViewHandler) {
-    this.handler = handler;
-    this.fsWrapper = handler.getFsWrapper();
-  }
-
-  /**
-   * Set or reset the active file
-   */
-  public setActiveFile(fullPath: string): void {
-    this.activeFile = fullPath || '';
-  }
-
-  /**
-   * Get the active file path
-   */
-  public getActiveFile(): string {
-    return this.activeFile;
-  }
-
-  /**
-   * Check if a file is the active file
-   */
-  private isActiveFile(fullPath: string): boolean {
-    return this.activeFile !== '' && 
-           this.fsWrapper.normalize(this.activeFile) === this.fsWrapper.normalize(fullPath);
-  }
-
-  onNodeRenamed(oldNode: string, newNode: string, isFolder: boolean): void {
-    if (isFolder) {
-      // Folder renamed - check if active file is inside this folder
-      if (this.activeFile && this.activeFile.startsWith(oldNode + this.fsWrapper.pathSep)) {
-        const newFile = this.fsWrapper.movePathRelativeTo(oldNode, this.activeFile, newNode);
-        this.activeFile = newFile;
-        this.handler.sendActiveFileUpdate('moved (folder renamed)', newFile);
-      }
-    } else {
-      // File renamed - check if it's the active file
-      if (this.isActiveFile(oldNode)) {
-        this.activeFile = newNode;
-        this.handler.sendActiveFileUpdate('renamed', newNode);
-      }
-    }
-  }
-
-  onNodeMoved(oldNode: string, newNode: string, isFolder: boolean): void {
-    if (isFolder) {
-      // Folder moved - check if active file is inside this folder
-      if (this.activeFile && this.activeFile.startsWith(oldNode + this.fsWrapper.pathSep)) {
-        const newFile = this.fsWrapper.movePathRelativeTo(oldNode, this.activeFile, newNode);
-        this.activeFile = newFile;
-        this.handler.sendActiveFileUpdate('moved (folder moved)', newFile);
-      }
-    } else {
-      // File moved - check if it's the active file
-      if (this.isActiveFile(oldNode)) {
-        this.activeFile = newNode;
-        this.handler.sendActiveFileUpdate('moved', newNode);
-      }
-    }
-  }
-
-  onNodeRemoved(node: string, isFolder: boolean): void {
-    if (!this.activeFile) {
-      return;
-    }
-
-    const normalizedNode = this.fsWrapper.normalize(node);
-    const normalizedActiveFile = this.fsWrapper.normalize(this.activeFile);
-
-    if (isFolder) {
-      // Folder removed - check if it's a parent of the snippet path
-      const folderWithSep = normalizedNode + this.fsWrapper.pathSep;
-      if (normalizedActiveFile.startsWith(folderWithSep)) {
-        const removedFolderName = this.fsWrapper.getBasename(normalizedNode);
-        const activeFileName = this.fsWrapper.getBasename(normalizedActiveFile);
-        
-        // Access apiProvider through handler - need to expose it or add helper methods
-        // For now, we'll need to add a method to handler to show warning
-        this.handler.showWarningMessage(
-          `Snippet file "${activeFileName}" is no longer accessible: parent folder "${removedFolderName}" was removed.`
-        );
-        
-        this.activeFile = '';
-        this.handler.closeSnippet();
-      }
-    } else {
-      // File removed - check if it's the active file itself
-      if (normalizedNode === normalizedActiveFile) {
-        this.handler.showWarningMessage(`Snippet file was removed: ${this.fsWrapper.getBasename(node)}`);
-        this.activeFile = '';
-        this.handler.closeSnippet();
-      }
-    }
-  }
-
-  onNodeActivate(nodePath: string, isFolder: boolean): void {
-    if (!isFolder) {
-      this.handler.activateNode(nodePath);
-    }
-  }
-
-  onNodeOverwrite(node: string, isFolder: boolean): void {
-    if (isFolder) {
-      // Folder overwritten - check if it's in the snippet path
-      if (!this.activeFile) {
-        return;
-      }
-
-      const normalizedFolder = this.fsWrapper.normalize(node);
-      const normalizedActiveFile = this.fsWrapper.normalize(this.activeFile);
-      const folderWithSep = normalizedFolder + this.fsWrapper.pathSep;
-
-      if (normalizedActiveFile.startsWith(folderWithSep)) {
-        // The snippet file path contains the overwritten folder
-        // Check if the snippet file still exists after the overwrite
-        const activeFilePath = this.activeFile;
-        // Convert absolute path to relative path for the wrapper
-        const relativePath = this.fsWrapper.toRelativePath(activeFilePath);
-        if (this.fsWrapper.exists(relativePath)) {
-          // File still exists, propose to reload
-          const fileName = this.fsWrapper.getBasename(activeFilePath);
-          this.handler.showWarningMessage(
-            `Folder containing snippet file "${fileName}" was overwritten. Do you want to reload the snippet?`,
-            true,
-            'Reload',
-            'Keep Current'
-          ).then(result => {
-            if (result === 'Reload') {
-              // Reload the snippet from file
-              const { error, snippets, head } = this.handler.readSnippetFromFileItem(relativePath);
-              this.handler.loadSnippetFromJSON(error, snippets, head);
-              this.handler.showInformationMessage(`Snippet reloaded: ${fileName}`);
-            }
-          });
-        } else {
-          // File doesn't exist anymore, close snippet
-          const activeFileName = this.fsWrapper.getBasename(normalizedActiveFile);
-          this.handler.showWarningMessage(
-            `Snippet file "${activeFileName}" no longer exists after folder overwrite.`
-          );
-          this.activeFile = '';
-          this.handler.closeSnippet();
-        }
-      }
-    } else {
-      // File overwritten - check if it's the active snippet
-      if (this.isActiveFile(node)) {
-        const fileName = this.fsWrapper.getBasename(node);
-        
-        // Show dialog to propose reload (fire and forget - don't block)
-        this.handler.showWarningMessage(
-          `Snippet file "${fileName}" was overwritten. Do you want to reload it with the new data?`,
-          true,
-          'Reload',
-          'Keep Current'
-        ).then(result => {
-          if (result === 'Reload') {
-            // Reload the snippet from file
-            // Convert absolute path to relative path
-            const relativePath = this.fsWrapper.toRelativePath(node);
-            const { error, snippets, head } = this.handler.readSnippetFromFileItem(relativePath);
-            this.handler.loadSnippetFromJSON(error, snippets, head);
-            this.handler.showInformationMessage(`Snippet reloaded: ${fileName}`);
-          }
-        });
-      }
     }
   }
 }

@@ -142,6 +142,33 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
   }
 
   /**
+   * Show a native "Save As" dialog and return the chosen absolute path.
+   */
+  public async showSaveDialog(options: {
+    defaultAbsolutePath?: string;
+    filters?: { [name: string]: string[] };
+  }): Promise<string | undefined> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const defaultUri = options.defaultAbsolutePath
+      ? vscode.Uri.file(options.defaultAbsolutePath)
+      : (workspaceFolders && workspaceFolders.length > 0 ? workspaceFolders[0].uri : undefined);
+
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri,
+      filters: options.filters,
+      saveLabel: 'Save'
+    });
+    return uri?.fsPath;
+  }
+
+  /**
+   * Reveal/focus a contributed view by id.
+   */
+  public async focusView(viewId: string): Promise<void> {
+    await vscode.commands.executeCommand(`${viewId}.focus`);
+  }
+
+  /**
    * Get the workspace folder for a given URI
    * @param uri The URI to get the workspace folder for
    * @returns The workspace folder, or undefined if not found
@@ -203,10 +230,6 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
 
   protected showOpenDialog(options?: vscode.OpenDialogOptions): Thenable<vscode.Uri[] | undefined> {
     return vscode.window.showOpenDialog(options);
-  }
-
-  protected showSaveDialog(options?: vscode.SaveDialogOptions): Thenable<vscode.Uri | undefined> {
-    return vscode.window.showSaveDialog(options);
   }
 
   protected getNonce(): string {

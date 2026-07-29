@@ -18,11 +18,10 @@ suite('Extension Test Suite', () => {
     test('Core commands are registered after activation', async () => {
         const commands = await vscode.commands.getCommands(true);
         const expected = [
-            'snippetExplorer.refresh',
-            'snippetExplorer.addSnippet',
-            'snippetExplorer.addFolder',
-            'snippetExplorer.openConfig',
             'workingSnippet.close',
+            'workingSnippet.newItem',
+            'workingSnippet.showSaveDialog',
+            'workingSnippetView.openFileItem',
         ];
         for (const cmd of expected) {
             assert.ok(commands.includes(cmd), `Command not registered: ${cmd}`);

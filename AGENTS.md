@@ -5,19 +5,30 @@
 A VSCode extension for capturing **software architecture snippets**: ordered sequences of
 `{ filename, line number, text comment }` items that annotate source code.
 
-A set of such items is stored as a `.snippet` file (JSON). The user builds snippets by
-selecting lines in the editor while the Working Snippet panel is open, then saves to a
-`.snippet` file via the Explorer panel.
+A set of such items is a plain project file — a `.snippet.json` (or legacy `.snippet`) file,
+JSON content, saved wherever you like in your project. The user builds a snippet by selecting
+lines in the editor while the Working Snippet panel is open, then saves it via a native
+"Save As" dialog. There is **no custom file explorer or virtual storage** — snippet files are
+browsed with VS Code's own Explorer, like any other project file (see
+[Readme.snippets.md](Readme.snippets.md) for the design history/rationale).
 
-## Two webview panels
+## One webview panel + one redirect custom editor
 
-| Panel | View ID | Handler |
+| Piece | View/viewType ID | Handler |
 |---|---|---|
-| **Explorer** | `snippetExplorerView` | `SnippetExplorerHandler` |
-| **Working Snippet** | `workingSnippetView` | `SnippetViewHandler` |
+| **Working Snippet** (sidebar webview) | `workingSnippetView` | `SnippetViewHandler` |
+| **`*.snippet.json` / `*.snippet` redirect editor** | `vscodeSnippetor.snippetJsonEditor` | `SnippetJsonEditorProvider` |
 
-Both panels are VSCode webviews registered via `SnippetBaseProvider` (a single base class
-that implements `vscode.WebviewViewProvider`).
+The sidebar panel is a VSCode webview registered via `SnippetBaseProvider` (implements
+`vscode.WebviewViewProvider`). The redirect editor is a `vscode.CustomReadonlyEditorProvider`:
+opening a `*.snippet.json`/`*.snippet` file never shows an editor tab — it loads the file into
+the sidebar and immediately disposes the phantom tab VS Code creates for the custom editor.
+There's nothing else to open a snippet file *as* (no tree, no "Open Snippet" tree command) —
+this redirect editor is the one entry point, alongside the `workingSnippetView.openFileItem`
+command for programmatic use.
+
+The separate UML diagram editor (`.umlsync`, `DiagramEditorProvider`) is unrelated additive
+functionality — see [Readme.uml.md](Readme.uml.md).
 
 ---
 
@@ -29,89 +40,42 @@ that implements `vscode.WebviewViewProvider`).
 │                                                     │
 │  SnippetBaseProvider  ←→  ISnippetorApiProvider     │
 │       │                                             │
-│  SnippetExplorerHandler   SnippetViewHandler        │
-│       │                        │                   │
-│  SnippetExplorerCommandHandler  (Move/Copy/Remove)  │
-│       │                                             │
+│  SnippetViewHandler   ←──  SnippetJsonEditorProvider │
+│       │                        (redirect editor)     │
 │  SnippetorFilesystemsWrapper  (ISnippetorFilesystemWrapper)
 │       │                                             │
-│  ~/.vscode/archsnippets/  (real filesystem)         │
+│  wherever you saved the file  (real filesystem)     │
 └─────────────────────────────────────────────────────┘
          ↑↓  postMessage / onDidReceiveMessage
 ┌─────────────────────────────────────────────────────┐
 │  Webview sandbox (browser JS, no FS/VSCode access)  │
 │                                                     │
-│  SnippetTreeView  NodeItem  TreeCommandHandler      │
-│  ContextMenuHandler  DragAndDropHandler             │
-│  MessageManager  DialogManager                      │
+│  SnippetHeadManager  SnippetHeadImage  SnippetItemView │
 └─────────────────────────────────────────────────────┘
 ```
 
 ### Key design constraints
 
-1. **Webview knows nothing about absolute paths.**  
-   All paths in the webview must be abstract/virtual (e.g., `"Drafts/foo/bar.snippet"`).
-   Path resolution (abstract name → real filesystem path) is exclusively the responsibility
-   of `SnippetorFilesystemsWrapper` on the extension side.
+1. **Every path the handler/wrapper deals with is a real, absolute filesystem path.**
+   There is no abstract/virtual path layer, no config file, no mount points. A snippet file's
+   identity *is* its absolute path — `SnippetViewHandler.currentSnippetFullPath` is the single
+   source of truth for "which file, if any, is currently open." The webview never sees or
+   constructs paths at all (see the messaging protocol below) — that's simpler than it used to
+   be, not a boundary to police.
 
-   > **Current state (known gap):** `SnippetExplorerHandler.getRootChildren()` and
-   > `readDirectory()` currently convert relative paths to absolute before sending them to
-   > the webview. The webview's `nodeMap` therefore holds absolute paths today. This is a
-   > **known issue to be fixed**: the goal is to pass only abstract relative paths to the
-   > webview and have the extension side resolve them on every inbound message.
+2. **All VSCode API calls are isolated behind `ISnippetorApiProvider`.**
+   `SnippetViewHandler` never imports `vscode` directly. It receives an `ISnippetorApiProvider`
+   instance via `setApiProvider()`. This includes the native "Save As" dialog
+   (`showSaveDialog`) and view-focus (`focusView`) used by the save/open flow.
 
-2. **Top-level folders (roots) are immutable from the webview.**  
-   The user cannot rename, move, or delete a root folder via the UI. This is enforced in
-   `BaseCommandHandler.checkSourceAndDestinationPaths()` and also in
-   `ContextMenuHandler` (context menu is suppressed for `isTopLevel` nodes).
-
-3. **All VSCode API calls are isolated behind `ISnippetorApiProvider`.**  
-   Handlers (`SnippetExplorerHandler`, `SnippetViewHandler`) never import `vscode` directly.
-   They receive an `ISnippetorApiProvider` instance via `setApiProvider()`.
-
-4. **All filesystem operations are isolated behind `ISnippetorFilesystemWrapper`.**  
-   Handlers operate on relative paths and delegate all I/O to the wrapper. The mock
-   implementation (`MockFilesystemWrapper`) enables testing without a real filesystem.
+3. **All filesystem operations are isolated behind `ISnippetorFilesystemWrapper`.**
+   The handler calls `readFile`/`writeFile`/`exists`/`dirname`/`basename`/`computeRelativePath`
+   on real absolute paths and delegates all I/O to the wrapper. `MockFilesystemWrapper`
+   (an in-memory, absolute-path-keyed cache) enables testing without a real filesystem.
 
 ---
 
-## Path model
-
-### Config file
-
-Location: `~/.vscode/archsnippets/config.json`
-
-```json
-[
-  { "folder": "Drafts",     "mapping": "/home/user/projects/snippets/drafts" },
-  { "folder": "LocalSpace", "mapping": "/home/user/projects/snippets/local"  }
-]
-```
-
-`folder` is the abstract name shown in the Explorer tree. `mapping` is the real absolute
-path on disk. The config is created with defaults (`Drafts`, `LocalSpace` inside
-`~/.vscode/archsnippets/`) if it does not exist.
-
-### Relative path format (internal, extension side)
-
-```
-"Drafts"                        ← root folder
-"Drafts/subfolder"              ← subfolder
-"Drafts/subfolder/file.snippet" ← snippet file
-```
-
-No leading slash. `SnippetorFilesystemsWrapper.toAbsolutePath()` resolves these to real
-paths by looking up the first segment in the config. `toRelativePath()` does the reverse.
-
-### Relative path with leading slash (snippet file storage)
-
-Snippet JSON stores its own path as `"/Drafts/file.snippet"` (leading slash).
-`relativePathWithSlashToAbsolute()` and `absoluteToRelativePathWithSlash()` convert between
-this format and absolute paths.
-
----
-
-## Snippet file format (`.snippet`)
+## Snippet file format (`.snippet.json`, legacy `.snippet`)
 
 ```json
 {
@@ -132,8 +96,8 @@ this format and absolute paths.
   `computeRelativePath(workspaceFolder, absoluteFilePath)`).
 - `line`: display label in format `"basename:lineNumber"` (1-indexed).
 - `uid`: random string used as the UI key, not persisted meaningfully.
-- `path` (not stored in file — only in memory): the relative path of the snippet file
-  itself, used while the snippet is open in the Working Snippet panel.
+- The snippet *file's own* path is never stored inside the file — it's implicit (wherever the
+  user saved it), tracked in memory as `SnippetViewHandler.currentSnippetFullPath` while open.
 
 ---
 
@@ -141,62 +105,48 @@ this format and absolute paths.
 
 ```
 src/
-  extension.ts                    # Activation: wires up providers, registers commands
+  extension.ts                    # Activation: wires up the provider, registers commands
   SnippetBaseProvider.ts          # vscode.WebviewViewProvider + ISnippetorApiProvider impl
-  ISnippetorApiProvider.ts        # Interface: VSCode API surface used by handlers
+  ISnippetorApiProvider.ts        # Interface: VSCode API surface used by the handler
   ISnippetorWebViewHandler.ts     # Interface: webview lifecycle methods
-  SnippetExplorerHandler.ts       # Explorer panel logic (message handling, tree ops)
-  SnippetViewHandler.ts           # Working Snippet panel logic + SnippetExplorerListener impl
-  SnippetExplorerCommandHandler.ts# Move / Copy / Remove command classes
-  SnippetorFilesystemsWrapper.ts  # Real filesystem wrapper (config load, path resolution)
+  SnippetViewHandler.ts           # Working Snippet panel logic (message handling, save/open)
+  SnippetJsonEditorProvider.ts    # Redirect custom editor for *.snippet.json / *.snippet
+  SnippetorFilesystemsWrapper.ts  # Thin real-fs wrapper (absolute paths only)
   ISnippetorFilesystemWrapper.ts  # Interface for the filesystem wrapper
   test/
-    MockFilesystemWrapper.ts      # In-memory FS for tests
-    MockSnippetBaseProvider.ts    # Mock API provider for tests
-    SnippetorTest.ts              # Test harness (activate/deactivate without VSCode)
+    MockFilesystemWrapper.ts      # In-memory FS for tests (absolute-path-keyed)
+  tests/
+    SnippetViewHandler.test.ts        # Handler logic, vi.fn()-mocked ISnippetorApiProvider
+    SnippetorFilesystemsWrapper.test.ts
 
 media/
-  explorerView.html / explorerView.template.html
-  snippetView.html
-  js/
-    init.js                       # Bootstrap: creates MessageManager, SnippetTreeView
-    MessageManager.js             # sendCommand() / sendMessage() / onMessage()
-    SnippetTreeView.js            # Root tree component (render, selection, DnD orchestration)
-    NodeItem.js                   # Single tree node (folder or file)
-    TreeCommandHandler.js         # Sends commands to extension, updates UI on response
-    ContextMenuHandler.js         # Right-click menu (copy/cut/paste/rename/delete)
-    DragAndDropHandler.js         # HTML5 drag-and-drop
-    DialogManager.js              # Confirm / error dialogs (inside webview)
-  css/
-    explorerView.css
+  snippetView.html                # Working Snippet webview — fully self-contained (inline JS/CSS)
 ```
+
+(UML editor's `src/*Uml*.ts` and `media/umlsync/` are documented separately in
+[Readme.uml.md](Readme.uml.md); the MCP server in [Readme.mcp.md](Readme.mcp.md).)
 
 ---
 
 ## Messaging protocol (extension ↔ webview)
 
-### Webview → Extension (`sendCommand`)
+The Working Snippet webview posts plain `{ command, data }` messages (no callback/id
+round-trip — unlike the old Explorer tree, there's no async filesystem browsing happening
+in the webview to correlate replies to).
 
-Commands use a `callbackId` and expect a `onCallback` reply:
+### Webview → Extension
 
-```js
-// webview side (MessageManager.sendCommand)
-{ type: 'expand', path: '...', callbackId: 'cb-001' }
+`closeSnippet`, `saveSnippet` (overwrite the open file, or prompt Save As if nothing is open),
+`saveSnippetAs` (always prompts), `openSnippetItem`, `removeSnippetItem`, `editSnippetItem`,
+`updateSnippetItem`, `updateSnippetHead` (title/description only).
 
-// extension side reply (SnippetExplorerHandler.sendCallback)
-{ type: 'onCallback', callbackId: 'cb-001', success: true, error: '', data: [...] }
-```
+### Extension → Webview
 
-Commands: `ready`, `expand`, `rename`, `move`, `copy`, `remove`, `createFolder`,
-`createSnippet`, `checkDestination`, `openFile`, `openText`, `saveTreeState`, `openConfig`.
-
-### Extension → Webview (`postMessage`)
-
-Push messages (no callback): `refresh`, `addNode`, `addFolder`, `addSnippet`.
-
-For the Working Snippet panel the field is `command` (not `type`) due to the separate
-`SnippetViewHandler` message schema: `updateSnippetList`, `newSnippetItem`, `showSaveDialog`,
-`updateFilePath`, `autocompleteCallback`.
+`updateSnippetList` (full refresh: snippets + head + error), `newSnippetItem`,
+`updateFilePath` (selection-tracking update while editing an item), `showSaveDialog` (reveal
+the title/description review panel — despite the name, no path field/dialog lives in the
+webview anymore; the actual native OS dialog is triggered extension-side via
+`ISnippetorApiProvider.showSaveDialog`).
 
 ---
 
@@ -205,21 +155,15 @@ For the Working Snippet panel the field is `command` (not `type`) due to the sep
 ```
 extension.ts
   ├─ SnippetorFilesystemsWrapper          (shared, one instance)
-  ├─ SnippetExplorerHandler(fsWrapper)
-  ├─ SnippetViewHandler(explorer, fsWrapper)
-  │    └─ SnippetExplorerListenerHelper   (implements SnippetExplorerListener)
-  ├─ SnippetBaseProvider(ctx, explorerHandler)   → calls explorerHandler.setApiProvider(this)
-  └─ SnippetBaseProvider(ctx, snippetHandler)    → calls snippetHandler.setApiProvider(this)
-
-SnippetExplorerHandler
-  ├─ dispatches to MoveCommandHandler / CopyCommandHandler / RemoveCommandHandler
-  └─ notifies SnippetExplorerListener on FS mutations
+  ├─ SnippetViewHandler(fsWrapper)
+  ├─ SnippetBaseProvider(ctx, snippetHandler)   → calls snippetHandler.setApiProvider(this)
+  └─ SnippetJsonEditorProvider(snippetHandler)  → registered for *.snippet.json / *.snippet
 
 SnippetViewHandler
-  ├─ listens to editor selection changes (caches filePath + line)
-  ├─ manages in-memory snippet list (snippetList[])
-  └─ implements SnippetExplorerListener via SnippetExplorerListenerHelper
-       (tracks active open file; closes/reloads snippet on rename/move/remove)
+  ├─ listens to editor selection changes (caches filePath + line for "New Snippet Item")
+  ├─ manages in-memory snippet list (snippetList[]) and currentSnippetFullPath
+  └─ openSnippetFile(absolutePath) — shared entry point used by both
+       SnippetJsonEditorProvider and the workingSnippetView.openFileItem command
 ```
 
 ---
@@ -227,34 +171,23 @@ SnippetViewHandler
 ## Build
 
 ```bash
-npm run compile          # build:explorer (HTML template) + build:bundle (esbuild)
-npm run compile:test     # tsc for test files + build:test-page
+npm run compile          # build:snippet-view + build:umlsync + build:mcp + build:bundle
 ```
 
 Output goes to `out/extension/`. The extension entry point is `out/extension/extension.js`.
-Media files (HTML, JS, CSS, images) are copied to `out/extension/media/`.
+`scripts/build-snippet-view.js` copies `media/snippetView.html` (and its images) to
+`out/extension/media/` — there's no template/JS-bundle assembly step anymore since the panel
+is a single self-contained HTML file.
 
 ---
 
 ## Testing
 
-The test harness in `src/test/SnippetorTest.ts` mirrors `extension.ts` but uses:
-- `MockFilesystemWrapper` (in-memory virtual FS, configurable folder mappings)
-- `MockSnippetBaseProvider` (captures `postMessage` calls, exposes them for assertions)
-
-Tests activate via `snippetor.activate(config?)` and deactivate via `snippetor.deactivate()`.
-No VSCode runtime or real filesystem is required.
-
----
-
-## Active development goals / known gaps
-
-- **Path boundary cleanup**: The webview currently receives absolute paths (see constraint #1
-  above). The planned fix is to pass only abstract relative paths (`"Drafts/foo/bar"`) to the
-  webview and have `SnippetExplorerHandler` resolve paths before every FS operation via
-  `convertToRelativePath()`. String path manipulation in the webview JS must be verified to
-  work with the abstract path format.
-
-- **Snippet file path storage format**: The leading-slash format (`"/Drafts/file.snippet"`)
-  stored in JSON is a legacy artifact; it should ideally unify with the no-slash relative
-  format used everywhere else in the extension.
+`npm run test-host` (vitest, `src/tests/**/*.test.ts`) covers `SnippetViewHandler` and
+`SnippetorFilesystemsWrapper` with mocked/in-memory filesystems — no VSCode runtime required.
+See [src/test/TEST.md](src/test/TEST.md) for the full breakdown, including what's still
+VSCode-runtime-only. Note: `SnippetJsonEditorProvider` disposes its `WebviewPanel` inside
+`resolveCustomEditor` on a deferred `setTimeout(..., 0)`, not inline — disposing immediately
+races VS Code's own "open editor" bookkeeping and produces an "Unable to open '<file>'" /
+"overlayWebview has been disposed" error even though the sidebar redirect already succeeded
+(see Readme.snippets.md's "Open risks" for the history).

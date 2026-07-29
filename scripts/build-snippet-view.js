@@ -1,19 +1,17 @@
 const fs = require('fs');
 const path = require('path');
 
-// Paths
+// Copies media/snippetView.html (and the images it references) into
+// out/extension/media/. Snippet files are plain project files now — there
+// is no Explorer webview to assemble (see Readme.snippets.md).
+
+const outDir = path.join(__dirname, '..', 'out');
 const mediaDir = path.join(__dirname, '..', 'media');
-const jsDir = path.join(mediaDir, 'js');
-const cssDir = path.join(mediaDir, 'css');
-const outExtensionMediaDir = path.join(__dirname, '..', 'out', 'extension', 'media');
+const outExtensionMediaDir = path.join(outDir, 'extension', 'media');
 const outExtensionMediaImagesDir = path.join(outExtensionMediaDir, 'images');
-const templatePath = path.join(mediaDir, 'explorerView.template.html');
-const cssPath = path.join(cssDir, 'explorerView.css');
 const snippetViewHtmlPath = path.join(mediaDir, 'snippetView.html');
-const outputPath = path.join(outExtensionMediaDir, 'explorerView.html');
 const snippetViewOutputPath = path.join(outExtensionMediaDir, 'snippetView.html');
 
-// Ensure output directories exist
 if (!fs.existsSync(outExtensionMediaDir)) {
   fs.mkdirSync(outExtensionMediaDir, { recursive: true });
 }
@@ -21,46 +19,27 @@ if (!fs.existsSync(outExtensionMediaImagesDir)) {
   fs.mkdirSync(outExtensionMediaImagesDir, { recursive: true });
 }
 
-// Define JS files in dependency order
-const jsFiles = [
-  'MessageManager.js',
-  'DialogManager.js',
-  'TreeCommandHandler.js',
-  'DragAndDropHandler.js',
-  'ContextMenuHandler.js',
-  'NodeItem.js',
-  'SnippetTreeView.js',
-  'init.js'
+// Copy icon.svg to both locations package.json's "contributes" references:
+// the activity bar container icon (out/icon.svg) and the view icon
+// (out/extension/media/icon.svg). Neither was ever produced by the old
+// build-explorer-view.js either — this closes a pre-existing 404.
+const iconSrcPath = path.join(mediaDir, 'icon.svg');
+const iconDestPaths = [
+  path.join(outDir, 'icon.svg'),
+  path.join(outExtensionMediaDir, 'icon.svg')
 ];
-
-// Read and combine JS files
-let js = '';
-for (const jsFile of jsFiles) {
-  const jsPath = path.join(jsDir, jsFile);
-  if (!fs.existsSync(jsPath)) {
-    console.error(`Warning: JS file not found: ${jsPath}`);
-    continue;
+if (fs.existsSync(iconSrcPath)) {
+  for (const iconDestPath of iconDestPaths) {
+    fs.copyFileSync(iconSrcPath, iconDestPath);
+    console.log(`Copied icon.svg to ${iconDestPath}`);
   }
-  const content = fs.readFileSync(jsPath, 'utf8');
-  js += content + '\n\n';
+} else {
+  console.error(`Warning: icon.svg not found: ${iconSrcPath}`);
 }
-
-// Read template and CSS
-const template = fs.readFileSync(templatePath, 'utf8');
-const css = fs.readFileSync(cssPath, 'utf8');
-
-// Replace placeholders
-let html = template.replace('{{CSS}}', css);
-html = html.replace('{{JS}}', js);
-
-// Write output
-fs.writeFileSync(outputPath, html, 'utf8');
-console.log(`Built explorerView.html to ${outputPath}`);
 
 // Copy snippetView.html and update image references to use images/ subdirectory
 if (fs.existsSync(snippetViewHtmlPath)) {
   let snippetViewContent = fs.readFileSync(snippetViewHtmlPath, 'utf8');
-  // Update image references from {{media_path}}/image.png to {{media_path}}/images/image.png
   snippetViewContent = snippetViewContent.replace(
     /(\{\{media_path\}\}\/)(light_(?:empty|error|plus)\.png)/g,
     '$1images/$2'

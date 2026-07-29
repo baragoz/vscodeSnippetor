@@ -32,24 +32,26 @@ Together, these items describe the flow, design decisions, or internal logic of 
 
 Your data is always yours. Snippetor is designed with a **privacy-first** philosophy, which means no data is ever sent to a remote server.
 
-By default, the extension creates your snippet data in a local folder:
+Snippet files (`*.snippet.json`) are **plain files in your project** — save them wherever
+makes sense for your workflow, right alongside your code. There's no separate storage folder
+or config to manage: browse and organize them with VS Code's own Explorer, and use whatever
+sharing/backup method you already use for the rest of the project, such as:
 
-`~/.vscode/archsnippets/`
-
-You have full control over your storage location and can use shared folders for collaboration, such as:
-
-  * A **Google Drive** or **Dropbox** folder
-  * A **synced Git repository** (recommended for teams\!)
-
-This flexibility allows you to choose your own backend and storage method, making collaboration seamless and secure without relying on any external service.
+  * A **Git repository** (recommended for teams\!)
+  * A **Google Drive** or **Dropbox** synced folder
 
 ## 🛠 Features
 
-  * **Auto-creates and manages local snippet spaces:** Get started instantly without any configuration.
-  * **Supports organizing snippets into folders:** Keep your knowledge base tidy and easy to navigate.
+  * **Snippet files live in your project:** No custom storage folder, no config — just `*.snippet.json` files wherever you save them.
+  * **Opens straight into the sidebar:** Double-click a `.snippet.json` file and it loads directly into the Working Snippet panel — no JSON tab to wade through.
+  * **Jump to the exact line:** Every snippet item links back to a real file and line number in your project.
   * **Lightweight and privacy-first:** No telemetry, no remote servers, no usage data collected.
-  * **Shareable data:** Easily share snippet folders with your team.
   * **Visual UML diagrams:** Create and edit class, package, component, state, and sequence diagrams in a native editor tab (`.umlsync` files).
+
+## Local run:
+```
+code --extensionDevelopmentPath="$PWD" --new-window
+```
 
 -----
 
@@ -86,12 +88,11 @@ npm install
 
 | Command | Description |
 |---|---|
-| `npm run compile` | Full build — explorer webview, UML editor webview, MCP server, and the TypeScript extension bundle |
-| `npm run build:explorer` | Rebuilds only the explorer webview HTML from `media/js/` and `media/css/` |
+| `npm run compile` | Full build — Working Snippet webview, UML editor webview, MCP server, and the TypeScript extension bundle |
+| `npm run build:snippet-view` | Copies `media/snippetView.html` (a self-contained file, no separate JS/CSS to assemble) to `out/extension/media/` |
 | `npm run build:umlsync` | Rebuilds the UML diagram editor webview (copies the `umlsync` vendor bundle + assembles `umlEditor.html`) |
 | `npm run build:mcp` | Type-checks and bundles the MCP server (`mcp/` → `mcp/dist/index.js`); see [Readme.mcp.md](Readme.mcp.md) |
 | `npm run build:bundle` | Compiles the TypeScript extension bundle |
-| `npm run compile:test` | Compiles the test TypeScript and builds the test page |
 
 ### Test targets
 
@@ -99,8 +100,6 @@ npm install
 |---|---|
 | `npm run test-host` | Runs unit tests with Vitest (no VS Code instance required) |
 | `npm run test:vscode` | Runs integration tests inside a real VS Code instance |
-
-> **Note:** `build:explorer` must be re-run whenever you change files under `media/js/` or `media/css/`, as the extension loads the assembled file from `out/extension/media/explorerView.html`.
 
 ## 🗺️ Future Plans
 

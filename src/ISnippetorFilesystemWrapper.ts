@@ -1,86 +1,23 @@
 // File: ISnippetorFilesystemWrapper.ts
-// Common interface for filesystem wrapper implementations
-
-import * as fs from 'fs';
-
-/**
- * A virtual mount-point mapping: mountPoint ('/Drafts') → absolutePath on disk.
- * All public API methods use mapped paths; absolute paths never leak out.
- */
-export interface SnippetMapping {
-  mountPoint: string;   // e.g. '/Drafts'
-  absolutePath: string; // real filesystem path the mount point resolves to
-}
-
-export interface ConfigLoadResult {
-  folders: SnippetMapping[];
-  isValid: boolean;
-  error?: string;
-}
-
-export interface FileStats {
-  isDirectory(): boolean;
-  isFile(): boolean;
-  size: number;
-  mtime: Date;
-  ctime: Date;
-}
-
-export interface DirectoryEntry {
-  name: string;
-  fullPath: string; // mapped path, e.g. '/Drafts/sub/file.txt'
-  isFolder: boolean;
-}
-
-export interface AutocompleteResult {
-  path: string;
-  error: string;
-  autocomplete: {name: string; isDirectory: boolean}[];
-}
+// Common interface for filesystem wrapper implementations.
+//
+// Snippet files are plain project files now — every path here is a real,
+// absolute filesystem path. There is no virtual mount-point/config layer
+// (see Readme.snippets.md).
 
 /**
- * Filesystem abstraction using virtual mount points.
- * All path arguments and return values are mapped paths ('/MountPoint/...').
- * Absolute filesystem paths never appear in the public API.
+ * Real-filesystem abstraction, isolated so handler logic stays testable
+ * without a real disk (see test/MockFilesystemWrapper.ts).
  */
 export interface ISnippetorFilesystemWrapper {
-  // Config management
-  loadFoldersFromConfig(): ConfigLoadResult;
-  reloadConfig(): ConfigLoadResult;
-  getFolders(): SnippetMapping[];
-  getConfigAbsolutePath(): string; // exception: needed so VS Code can open the config file
+  exists(absolutePath: string): boolean;
+  readFile(absolutePath: string, encoding?: BufferEncoding): string;
+  writeFile(absolutePath: string, data: string | Buffer, encoding?: BufferEncoding): void;
 
-  // Mapped-path utilities
-  mapPath(absoluteOrMappedPath: string): string; // converts absolute → '/MountPoint/...'
-  resolve(mappedPath: string): string;            // converts '/MountPoint/...' → absolute (VS Code API only)
-  isRootFolder(mappedPath: string): boolean;
+  dirname(absolutePath: string): string;
+  basename(absolutePath: string): string;
 
-  // Directory operations (all paths are mapped)
-  getRootChildren(): DirectoryEntry[];
-  readDirectory(mappedPath: string): DirectoryEntry[];
-  mkdir(mappedPath: string, recursive?: boolean): void;
-
-  // File operations (all paths are mapped)
-  exists(mappedPath: string): boolean;
-  stat(mappedPath: string): FileStats | fs.Stats;
-  rename(oldMappedPath: string, newMappedPath: string): void;
-  writeFile(mappedPath: string, data: string | Buffer, encoding?: BufferEncoding): void;
-  readFile(mappedPath: string, encoding?: BufferEncoding): string;
-  remove(mappedPath: string, recursive?: boolean): void;
-  copy(srcMappedPath: string, dstMappedPath: string): void;
-
-  // Path utilities (work on mapped paths)
-  dirname(mappedPath: string): string;
-  basename(mappedPath: string): string;
-  join(...paths: string[]): string;
-  getBasename(pathInput: string): string;
-  normalize(pathInput: string): string;
-  get pathSep(): string;
-
-  // Autocomplete
-  getAutoCompletion(mappedPath: string): AutocompleteResult;
-
-  // General path utilities (work on arbitrary absolute paths, not mapped paths)
+  // General path utilities (work on arbitrary absolute paths)
   computeRelativePath(from: string, to: string): string;
   getBasenameFromAbsolute(absolutePath: string): string;
 }

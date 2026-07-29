@@ -176,49 +176,8 @@
             color: var(--vscode-input-foreground);
         }
 
-        .sn-path-wrapper {
-            position: relative;
-        }
-
-        .sn-folder-select {
-            position: absolute;
-            top: 4px;
-            left: 4px;
-            height: calc(100% - 8px);
-            border: 1px solid #888;
-            border-radius: 4px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            padding: 0 8px;
-            font-size: 13px;
-            border-radius: 4px;
-            z-index: 1;
-            appearance: none;
-        }
-
-        .sn-path-input {
-            padding-left: 6px;
-            width: calc(100% - 6px);
-        }
-
         .sn-input:focus {
             outline: 1px solid var(--vscode-focusBorder);
-        }
-
-        .sn-error {
-            color: var(--vscode-errorForeground);
-            font-size: 13px;
-            margin-top: 6px;
-        }
-
-        .sn-checkbox {
-            display: flex;
-            align-items: center;
-            margin-top: 10px;
-        }
-
-        .sn-checkbox input {
-            margin-right: 8px;
         }
 
         .sn-button-row {
@@ -245,63 +204,15 @@
             cursor: not-allowed;
         }
 
-        .sn-autocomplete-list {
-            position: absolute;
-            top: 100%;
-            left: 120px;
-            z-index: 10;
-            width: calc(100% - 130px);
-            margin: 2px 0 0;
-            padding: 0;
-            list-style: none;
-            background: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-
-        .sn-autocomplete-list li {
-            padding: 6px 8px;
-            cursor: pointer;
-        }
-
-        .sn-autocomplete-list li:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-    </style>
-    <style>
-        .sn-path-overlay-wrapper {
-            position: relative;
-            width: 100%;
-        }
-
-        .sn-path-input {
-            position: relative;
+        .sn-button-secondary {
             background-color: transparent;
-            z-index: 2;
+            color: var(--vscode-foreground);
+            border: 1px solid var(--vscode-button-background);
         }
 
-        .sn-path-ghost {
-            position: absolute;
-            top: 0;
-            left: 0;
-            padding: 8px;
-            color: #999;
-            opacity: 0.3;
-            pointer-events: none;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-family: inherit;
-            font-size: inherit;
-            z-index: 1;
+        .sn-button-secondary:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground);
         }
-
-        .sn-hidden {
-            display: none;
-        }
-
     </style>
     <style>
         #sn-image-wrapper {
@@ -384,278 +295,14 @@
             </div>
         </div>
 
-        <div class="sn-form-group">
-            <label class="sn-label" for="sn-path">Path:</label>
-            <div class="sn-path-wrapper">
-                <input class="sn-input sn-path-input" type="text" id="sn-path"
-                    placeholder="e.g. lessons/week1/intro.json">
-                <div id="sn-path-ghost" class="sn-path-ghost"></div>
-                <ul id="sn-autocomplete-list" class="sn-autocomplete-list sn-hidden"></ul>
-            </div>
-
-            <div id="sn-error" class="sn-error sn-hidden">Directory does not exist</div>
-            <div id="sn-checkbox-group" class="sn-checkbox sn-hidden">
-                <input type="checkbox" id="sn-replace">
-                <label for="sn-replace">Replace the file?</label>
-            </div>
-        </div>
-
         <div id="sn-button-row" class="sn-button-row">
             <button class="sn-button" id="sn-save">Save</button>
-            <button class="sn-button" id="sn-cancel">Cancel</button>
+            <button class="sn-button sn-button-secondary" id="sn-save-as">Save As...</button>
+            <button class="sn-button sn-button-secondary" id="sn-cancel">Cancel</button>
         </div>
     </div>
 
     <script>
-        class AutoCompleteManager {
-            constructor(pathInput, vscode, onUpdateSuggestions) {
-                this.pathInput = pathInput;
-                this.vscode = vscode;
-                this.onUpdateSuggestions = onUpdateSuggestions;
-
-                this.autoList = document.querySelector('#sn-autocomplete-list');
-                this.autoSuggestions = [];
-                this.autoLock = false;
-                this.autoTimer = null;
-                this.selectedIndex = -1;
-                this.suggestions = [];
-
-                this.currentFolder = "";
-                this.searchError = "";
-
-                this.initEvents();
-            }
-
-            initEvents() {
-                this.pathInput.addEventListener('keydown', e => this.handleKeyDown(e));
-                this.pathInput.addEventListener('input', () => {
-                    this.handleInput();
-                    // this.updateGhostText();
-                });
-                this.pathInput.addEventListener('blur', () => {
-                    this.handleInput();
-                    setTimeout(() => this.autoList.classList.add('sn-hidden'), 150);
-                });
-            }
-
-            handleInput() {
-                const value = this.pathInput.value.trim();
-                const basePath = value.substring(0, value.lastIndexOf('/'));
-                if (basePath !== this.currentFolder) {
-                    this.currentFolder = basePath;
-                    this.searchError = ""; // reset error state
-
-                    this.vscode.postMessage({
-                        command: 'getAutoComplete',
-                        data: { path: basePath }
-                    });
-                } else {
-                    // Just filter data
-                    this.filterAutoComplete(value);
-                }
-            }
-
-            updateAutoComplete(payload) {
-                //
-                // Update latest requests only
-                //
-                if (payload.path === this.currentFolder) {
-                    let data = []
-                    if (payload.error !== "") {
-                        // Got error - like no such folder
-                        this.searchError = payload.error;
-                    } else {
-                        this.searchError = "";
-                        data = payload.autocomplete;
-                    }
-                    // Update UI for the snippet input
-                    this.onUpdateSuggestions(this.getActualError(), this.pathInput.value);
-
-                    // Update suggestions
-                    this.autoSuggestions = (data || []).map(item => ({
-                        name: item.isDirectory ? item.name + '/' : item.name,
-                        isDirectory: item.isDirectory
-                    }));
-
-                    // filter suggestions
-                    this.filterAutoComplete(this.pathInput.value);
-                }
-
-
-            }
-
-            isExistingPath() {
-                const tmp = this.pathInput.value;
-                if (this.currentFolder.length + 6 >= tmp.length) {
-                    return false;
-                }
-                const val  = tmp.substring(this.currentFolder.length + 1)
-                const x =  this.autoSuggestions.filter(item =>
-                    item.name === val
-                );
-                return x.length > 0;
-            }
-
-            getActualError() {
-                if (this.searchError && this.searchError !== "") {
-                    return this.searchError;
-                }
-
-                if (this.nameError && this.nameError !== "") {
-                    return this.nameError;
-                }
-                return "";
-            }
-
-            filterAutoComplete(currentValue) {
-                if (this.searchError) {
-                    // no need to update autocomplete
-                    this.onUpdateSuggestions(this.searchError, this.pathInput.value);
-                    return;
-                }
-
-                const filterText = currentValue.split('/').pop().toLowerCase();
-                const basePath = currentValue.substring(0, currentValue.lastIndexOf('/') + 1);
-
-                this.suggestions = this.autoSuggestions.filter(item =>
-                    item.name.toLowerCase().includes(filterText)
-                );
-
-                this.autoList.innerHTML = '';
-                this.selectedIndex = -1;
-
-                const ghost = document.getElementById('sn-path-ghost');
-                const text = this.pathInput.value;
-                // TODO: 3 a.m. code, re-work needed
-                if (text.endsWith("/") || text.endsWith(".snippet")) {
-                    ghost.textContent = '';
-                } else if (text.endsWith(".")) {
-                    ghost.textContent = text + "snippet";
-                } else if (text.endsWith(".s")) {
-                    ghost.textContent = text + "nippet";
-                } else if (text.endsWith(".sn")) {
-                    ghost.textContent = text + "ippet";
-                } else if (text.endsWith(".sni")) {
-                    ghost.textContent = text + "ppet";
-                } else if (text.endsWith(".snip")) {
-                    ghost.textContent = text + "pet";
-                } else if (text.endsWith(".snipp")) {
-                    ghost.textContent = text + "et";
-                } else if (text.endsWith(".snippe")) {
-                    ghost.textContent = text + "t";
-                } else {
-                    ghost.textContent = text + ".snippet";
-                }
-
-                if (ghost.textContent !== "") {
-                    this.nameError = "File extension should be '.snippet'";
-                } else {
-                    if (text.endsWith("/")) {
-                        this.nameError = "Please, enter filename";
-                    } else {
-                        this.nameError = "";
-                    }
-                }
-
-                this.onUpdateSuggestions(this.getActualError() , this.pathInput.value);
-
-                if (this.suggestions.length === 0) {
-                    this.autoList.classList.add('sn-hidden');
-                    return;
-                }
-
-                this.suggestions.forEach((suggestion, index) => {
-                    const li = document.createElement('li');
-                    li.textContent = basePath + suggestion.name;
-                    li.dataset.index = index;
-
-                    li.addEventListener('click', () => this.selectSuggestion(index));
-                    this.autoList.appendChild(li);
-                });
-
-                this.autoList.classList.remove('sn-hidden');
-            }
-
-            handleKeyDown(e) {
-                if (this.autoList.classList.contains('sn-hidden')) return;
-
-                const items = this.autoList.querySelectorAll('li');
-
-                if (e.key === 'ArrowRight') {
-                    const ghost = document.getElementById('sn-path-ghost');
-                    if (ghost.textContent !== "") {
-                        this.pathInput.value = ghost.textContent;
-                        ghost.textContent = '';
-                    }
-
-                } else if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (this.selectedIndex < items.length - 1) {
-                        this.selectedIndex++;
-                        this.updateActiveItem(items);
-                    }
-                }
-
-                if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    if (this.selectedIndex > 0) {
-                        this.selectedIndex--;
-                        this.updateActiveItem(items);
-                    } else if (this.selectedIndex === 0) {
-                        this.selectedIndex = -1;
-                        this.updateActiveItem(items);
-                    }
-                }
-
-                if (e.key === 'Enter' && this.selectedIndex >= 0) {
-                    e.preventDefault();
-                    this.selectSuggestion(this.selectedIndex);
-                }
-            }
-
-            updateActiveItem(items) {
-                items.forEach((li, idx) => {
-                    li.classList.toggle('active', idx === this.selectedIndex);
-                });
-                if (this.selectedIndex === -1) {
-                    this.pathInput.focus();
-                }
-            }
-
-            selectSuggestion(index) {
-                const basePath = this.pathInput.value.substring(0, this.pathInput.value.lastIndexOf('/') + 1);
-                this.pathInput.value = basePath + this.suggestions[index].name;
-                document.getElementById('sn-path-ghost').textContent = ''; // clear ghost
-                this.autoList.classList.add('sn-hidden');
-                this.handleInput();
-                // Notify suggestion change
-                this.onUpdateSuggestions?.(this.getActualError(), this.pathInput.value);
-            }
-
-            updateGhostText() {
-                const ghost = document.getElementById('sn-path-ghost');
-                if (this.suggestions.length > 0) {
-                    const inputValue = this.pathInput.value;
-                    const basePath = inputValue.substring(0, inputValue.lastIndexOf('/') + 1);
-                    const filterText = inputValue.split('/').pop().toLowerCase();
-                    const match = this.suggestions.find(s => s.name.toLowerCase().startsWith(filterText));
-                    if (match) {
-                        ghost.textContent = basePath + match.name;
-                    } else {
-                        ghost.textContent = '';
-                    }
-                } else {
-                    ghost.textContent = '';
-                }
-            }
-
-            isValidPath(originalPath) {
-                const err = this.getActualError();
-                return err === "";
-            }
-        }
-
-
         class SnippetHeadImage {
             constructor() {
                 this.wrapper = document.getElementById("sn-image-wrapper");
@@ -708,8 +355,6 @@
         class SnippetHeadManager {
             constructor() {
                 this.container = document.querySelector("#sn-save-container");
-                this.expanded = false;
-                this.state = 'save';
 
                 this.snippetHead = { title: "", description: "", path: "" };
                 this.snippetHead2 = { title: "", description: "", path: "" }; // Modified state
@@ -717,21 +362,10 @@
                 // Top button
                 this.closeBtn = this.container.querySelector('#sn-close');
 
-                // COMPONENT: Error + checkbox
-                this.error = this.container.querySelector('#sn-error');
-                this.checkboxGroup = this.container.querySelector('#sn-checkbox-group');
-                this.replaceCheckbox = this.container.querySelector('#sn-replace');
-
                 // COMPONENT: bottom buttons
                 this.saveBtn = this.container.querySelector('#sn-save');
+                this.saveAsBtn = this.container.querySelector('#sn-save-as');
                 this.cancelBtn = this.container.querySelector('#sn-cancel');
-
-
-                //
-                // AUTOCOMPLETE
-                //
-                this.selectedIndex = -1;
-                this.suggestions = [];
 
                 //
                 // TOP IAMGE
@@ -767,37 +401,24 @@
                     this.setVisibile(false);
                 }
                 //
-                //  SAVE
+                //  SAVE — overwrites the open file, or creates one via a
+                //  native dialog if nothing is open yet
                 //
                 this.saveBtn.onclick = () => {
-                    //
-                    // TODO: do we need something in data?
-                    //
-                    vscode.postMessage({
-                        command: "saveSnippet",
-                        data: {
-                            path: this.pathInput.value,
-                        }
-                    });
-
+                    vscode.postMessage({ command: "saveSnippet" });
                 }
                 //
-                // CHECKBOX - replace file
+                //  SAVE AS — always prompts a native dialog
                 //
-                this.replaceCheckbox.onchange = () => this.updateButtons();
-
-                this.setState('save');
+                this.saveAsBtn.onclick = () => {
+                    vscode.postMessage({ command: "saveSnippetAs" });
+                }
 
                 //
                 // TITLE + DESCRIPTION
                 //
                 this.subscribeForBlur("title");
                 this.subscribeForBlur("description");
-
-                //
-                // FILE PATH SELECT
-                //
-                this.initFileAutocomplete();
             }
 
             subscribeForBlur(item) {
@@ -813,113 +434,9 @@
                 });
             }
 
-            show(selectedPath) {
-                const pathInput = this.container.querySelector('#sn-path');
-
-                //
-                // if new snippet, use the selectedPath as initial state
-                //
-                if (this.snippetHead.path === "" && this.snippetHead2.path === "") {
-                    // Show currently selected path as default
-                    this.snippetHead2.path = selectedPath;
-                }
-
-                pathInput.value = this.snippetHead2.path;
-
+            show() {
                 // Show entire dialog
                 this.setVisibile(true);
-            }
-
-            showError(message) {
-                this.error.textContent = message;
-                if (message === "") {
-                    this.error.classList.add('sn-hidden');
-                    if (this.autocomplete.isExistingPath()) {
-                        this.showReplaceCheckbox(this.snippetHead.path !== this.snippetHead2.path);
-                    }
-                        
-                } else {
-                    this.error.classList.remove('sn-hidden');
-                    // hide checkbox
-                    this.checkboxGroup.classList.add('sn-hidden');
-                }
-
-            }
-
-            showReplaceCheckbox(enabled = true) {
-                if (enabled) {
-                    this.error.classList.add('sn-hidden');
-                    this.checkboxGroup.classList.remove('sn-hidden');
-                } else {
-                    this.checkboxGroup.classList.add('sn-hidden');
-                }
-            }
-
-            setState(mode) {
-                this.state = mode;
-
-                if (mode === 'save') {
-                    this.saveBtn.textContent = 'Save';
-                    this.saveBtn.disabled = false;
-                    this.cancelBtn.textContent = 'Cancel';
-                } else if (mode === 'move') {
-                    this.saveBtn.textContent = 'Move';
-                    this.cancelBtn.textContent = 'Copy';
-
-                    // Initially disable if checkbox not checked
-                    this.updateButtons();
-                }
-            }
-
-            updateButtons() {
-                let buttonText = "Save";
-                // NOT VALID PATH
-                if (!this.autocomplete.isValidPath()) {
-                    this.saveBtn.disabled = true;
-                }
-                else { // VALID PATH
-                    //
-                    // Path valid and it is original path
-                    //
-                    if (this.snippetHead.path === this.snippetHead2.path) {
-                        this.showReplaceCheckbox(false);
-                        this.saveBtn.disabled = false;
-                    } else {
-                        buttonText = "Save As ...";
-                        //
-                        // Not original path, but file already present
-                        //
-                        if (this.autocomplete.isExistingPath(this.snippetHead.path)) {
-                            this.showReplaceCheckbox();
-                            // Show save button if checkbox is on
-
-                            if (this.replaceCheckbox.checked) {
-                                this.saveBtn.disabled = false;
-                            } else {
-                                this.saveBtn.disabled = true;
-                            }
-                        } else {
-                            this.showReplaceCheckbox(false);
-                            // an as new path !!!!
-                            this.saveBtn.disabled = false;
-                        }
-                    }
-                }
-                this.saveBtn.textContent = buttonText;
-            }
-
-            //
-            // FILE PATH LOOKUP
-            //
-            initFileAutocomplete() {
-                this.pathInput = this.container.querySelector('#sn-path');
-                this.autocomplete = new AutoCompleteManager(this.pathInput, vscode, (error, newPath) => {
-                    console.log("PATH " + newPath + "   ERRPR: " + error);
-                    this.snippetHead2.path = newPath;
-                    this.showError(error || ""); // no-error ""
-                    this.updateButtons();
-                    
-                });
             }
 
             refreshHeads(orig, next) {
@@ -927,20 +444,15 @@
                 this.snippetHead2 = next;
 
                 // Update UI too
-                console.log("ASSING title  " + next.title, next.description)
                 this.title.value = next.title;
                 this.description.value = next.description;
-                this.pathInput.value = next.path;
 
-                // Update UI
-                this.updateButtons();
-
-                const tmp = this.snippetHead.path.split("/");
-                // 
+                const tmp = (this.snippetHead.path || "").split(/[\\/]/);
+                //
                 // Show an original filename if any
                 // Show "" if there is no draft items
                 // Show "Draft" if user added some item
-                const name = tmp.length > 0 ? tmp[tmp.length - 1]: (window.snippetItems.length > 0 ? "Draft" : "");
+                const name = tmp.length > 0 && tmp[tmp.length - 1] ? tmp[tmp.length - 1] : (window.snippetItems.length > 0 ? "Draft" : "");
                 this.imageView.setName(name);
             }
 
@@ -1264,14 +776,8 @@
                 window.snippetUI?.refreshImage('', window.snippetItems.length);
             } else if (command === 'showSaveDialog') {
                 if (window.snippetUI) {
-                    window.snippetUI.show(data.selectedPath);
+                    window.snippetUI.show();
                 }
-            }
-            //
-            // Callbacks
-            //
-            else if (command === 'autocompleteCallback') {
-                window.snippetUI.autocomplete.updateAutoComplete(data);
             }
         });
     </script>
