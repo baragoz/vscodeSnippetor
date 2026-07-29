@@ -7,10 +7,12 @@ let fsWrapper: MockFilesystemWrapper;
 let mockApi: ISnippetorApiProvider;
 let handler: SnippetViewHandler;
 let posted: any[];
+let activeCustomTabListener: ((tab: { viewType: string; uri: any } | undefined) => any) | undefined;
 
 beforeEach(() => {
   fsWrapper = new MockFilesystemWrapper();
   posted = [];
+  activeCustomTabListener = undefined;
   mockApi = {
     showInformationMessage: vi.fn().mockResolvedValue(undefined),
     showErrorMessage: vi.fn().mockResolvedValue(undefined),
@@ -19,8 +21,13 @@ beforeEach(() => {
     showTextDocumentInternal: vi.fn(),
     openFile: vi.fn(),
     postMessage: vi.fn((message: any) => { posted.push(message); }),
-    getWorkspaceFolder: vi.fn(),
+    getWorkspaceFolder: vi.fn().mockReturnValue('/project'),
     onDidChangeTextEditorSelection: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+    onDidChangeActiveCustomTab: vi.fn((listener: any) => {
+      activeCustomTabListener = listener;
+      return { dispose: vi.fn() };
+    }),
+    openCustomEditor: vi.fn(),
     getWorkspaceState: vi.fn().mockReturnValue([]),
     setWorkspaceState: vi.fn(),
     showSaveDialog: vi.fn(),
@@ -141,5 +148,77 @@ describe('SnippetViewHandler — save', () => {
     (mockApi.showSaveDialog as any).mockResolvedValue(undefined);
     await handler.onDidReceiveMessage({ command: 'saveSnippet' });
     expect(mockApi.showErrorMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('SnippetViewHandler — UML diagram snippet items', () => {
+  const UML_EDITOR_VIEW_TYPE = 'vscodeSnippetor.umlEditor';
+
+  it('focusing a UML diagram tab captures it for "New Snippet Item", no line number', async () => {
+    expect(activeCustomTabListener).toBeTypeOf('function');
+    activeCustomTabListener!({
+      viewType: UML_EDITOR_VIEW_TYPE,
+      uri: { fsPath: '/project/diagrams/AuthFlow.umlsync' }
+    });
+
+    handler.newSnippetItem('x');
+
+    const msg = lastMessage('newSnippetItem');
+    expect(msg.data.snippet.filePath).toBe('diagrams/AuthFlow.umlsync');
+    expect(msg.data.snippet.line).toBe('AuthFlow.umlsync');
+  });
+
+  it('ignores tab activations for other custom editors', async () => {
+    activeCustomTabListener!({
+      viewType: 'someOtherExtension.someEditor',
+      uri: { fsPath: '/project/other.foo' }
+    });
+
+    handler.newSnippetItem('x');
+
+    const msg = lastMessage('newSnippetItem');
+    expect(msg.data.snippet.filePath).toBe('');
+    expect(msg.data.snippet.line).toBe('');
+  });
+
+  it('ignores the active tab going back to "no custom tab" (undefined)', async () => {
+    activeCustomTabListener!({
+      viewType: UML_EDITOR_VIEW_TYPE,
+      uri: { fsPath: '/project/diagrams/AuthFlow.umlsync' }
+    });
+    activeCustomTabListener!(undefined);
+
+    handler.newSnippetItem('x');
+
+    const msg = lastMessage('newSnippetItem');
+    expect(msg.data.snippet.filePath).toBe('diagrams/AuthFlow.umlsync');
+  });
+
+  it('opens a diagram snippet item with the UML editor, not showTextDocument', async () => {
+    activeCustomTabListener!({
+      viewType: UML_EDITOR_VIEW_TYPE,
+      uri: { fsPath: '/project/diagrams/AuthFlow.umlsync' }
+    });
+    handler.newSnippetItem('x');
+    const uid = lastMessage('newSnippetItem').data.snippet.uid;
+
+    await handler.onDidReceiveMessage({ command: 'openSnippetItem', data: { uid } });
+
+    expect(mockApi.openCustomEditor).toHaveBeenCalledWith('diagrams/AuthFlow.umlsync', UML_EDITOR_VIEW_TYPE);
+    expect(mockApi.showTextDocument).not.toHaveBeenCalled();
+  });
+
+  it('still opens a code snippet item with showTextDocument, not the UML editor', async () => {
+    const target = '/project/notes/auth-flow.snippet.json';
+    fsWrapper.writeFile(target, JSON.stringify({
+      title: '', description: '',
+      snippets: [{ uid: 'uid-1', text: 't', filePath: 'src/a.ts', line: 'a.ts:7' }]
+    }));
+    await handler.openSnippetFile(target);
+
+    await handler.onDidReceiveMessage({ command: 'openSnippetItem', data: { uid: 'uid-1' } });
+
+    expect(mockApi.showTextDocument).toHaveBeenCalledWith('src/a.ts', 7);
+    expect(mockApi.openCustomEditor).not.toHaveBeenCalled();
   });
 });

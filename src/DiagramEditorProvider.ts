@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { IUmlFilesystemWrapper } from './IUmlFilesystemWrapper';
 import { UmlDiagramDocument } from './UmlDiagramDocument';
+import { UML_EDITOR_VIEW_TYPE } from './umlEditorViewType';
 
 /**
  * vscode.CustomEditorProvider for .umlsync files, embedding umlsync's DiagramEditor
@@ -23,6 +24,8 @@ import { UmlDiagramDocument } from './UmlDiagramDocument';
  * init.js detects that and shows the picker itself.
  */
 export class DiagramEditorProvider implements vscode.CustomEditorProvider<UmlDiagramDocument> {
+  public static readonly viewType = UML_EDITOR_VIEW_TYPE;
+
   private readonly _onDidChangeCustomDocument =
     new vscode.EventEmitter<vscode.CustomDocumentContentChangeEvent<UmlDiagramDocument>>();
   public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;

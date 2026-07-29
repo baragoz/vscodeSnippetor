@@ -68,6 +68,24 @@ export interface ISnippetorApiProvider {
   onDidChangeTextEditorSelection(listener: (e: vscode.TextEditorSelectionChangeEvent) => any): vscode.Disposable;
 
   /**
+   * Register a listener that fires whenever the active tab changes, with the
+   * active tab's custom-editor viewType + uri (or undefined if the newly
+   * active tab isn't a custom editor, e.g. it's a plain text editor). Used to
+   * capture non-text editors — like a UML diagram — as a snippet item, since
+   * they never produce `onDidChangeTextEditorSelection` events.
+   */
+  onDidChangeActiveCustomTab(
+    listener: (tab: { viewType: string; uri: vscode.Uri } | undefined) => any
+  ): vscode.Disposable;
+
+  /**
+   * Open a file with a specific custom editor viewType (e.g. the UML
+   * diagram editor), resolving a workspace-relative path against the
+   * workspace root the same way showTextDocument does.
+   */
+  openCustomEditor(relativeOrAbsolutePath: string, viewType: string): Promise<void>;
+
+  /**
    * Get a value from workspace state
    */
   getWorkspaceState<T>(key: string, defaultValue: T): T;

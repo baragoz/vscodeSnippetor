@@ -58,14 +58,10 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
    * Show text document at specified line
    */
   public async showTextDocument(fileName: string, startLine: number, endLine?: number): Promise<void> {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      this.showErrorMessage('No workspace folder is open.');
+    const absPath = this.resolveAgainstWorkspace(fileName);
+    if (!absPath) {
       return;
     }
-
-    const rootPath = workspaceFolders[0].uri.fsPath;
-    const absPath = path.join(rootPath, fileName);
     const fileUri = vscode.Uri.file(absPath);
 
     const end = endLine !== undefined ? endLine - 1 : startLine;
@@ -179,6 +175,50 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
 
   public onDidChangeTextEditorSelection(listener: (e: vscode.TextEditorSelectionChangeEvent) => any): vscode.Disposable {
     return vscode.window.onDidChangeTextEditorSelection(listener);
+  }
+
+  /**
+   * Fires on every tab-group change and reports the overall-focused group's
+   * active tab, if it's a custom editor (e.g. a UML diagram). `undefined`
+   * when the active tab is a plain text editor or something else.
+   */
+  public onDidChangeActiveCustomTab(
+    listener: (tab: { viewType: string; uri: vscode.Uri } | undefined) => any
+  ): vscode.Disposable {
+    return vscode.window.tabGroups.onDidChangeTabs(() => {
+      const activeTab = vscode.window.tabGroups.activeTabGroup.activeTab;
+      if (activeTab?.input instanceof vscode.TabInputCustom) {
+        listener({ viewType: activeTab.input.viewType, uri: activeTab.input.uri });
+      } else {
+        listener(undefined);
+      }
+    });
+  }
+
+  /**
+   * Open a file with a specific custom editor viewType.
+   */
+  public async openCustomEditor(relativeOrAbsolutePath: string, viewType: string): Promise<void> {
+    const absPath = path.isAbsolute(relativeOrAbsolutePath)
+      ? relativeOrAbsolutePath
+      : this.resolveAgainstWorkspace(relativeOrAbsolutePath);
+    if (!absPath) {
+      return;
+    }
+    await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(absPath), viewType);
+  }
+
+  /**
+   * Resolve a workspace-relative path to absolute, matching showTextDocument's
+   * assumption. Shows an error and returns undefined if no workspace is open.
+   */
+  private resolveAgainstWorkspace(relativePath: string): string | undefined {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      this.showErrorMessage('No workspace folder is open.');
+      return undefined;
+    }
+    return path.join(workspaceFolders[0].uri.fsPath, relativePath);
   }
 
   public getWorkspaceState<T>(key: string, defaultValue: T): T {

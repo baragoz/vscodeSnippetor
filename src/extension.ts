@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
   const umlFsWrapper = new UmlFilesystemWrapper();
   const diagramEditorProvider = new DiagramEditorProvider(context, umlFsWrapper);
   context.subscriptions.push(
-    vscode.window.registerCustomEditorProvider('vscodeSnippetor.umlEditor', diagramEditorProvider, {
+    vscode.window.registerCustomEditorProvider(DiagramEditorProvider.viewType, diagramEditorProvider, {
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
@@ -128,7 +128,7 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.commands.executeCommand(
         'vscode.openWith',
         vscode.Uri.file(uri.fsPath),
-        'vscodeSnippetor.umlEditor'
+        DiagramEditorProvider.viewType
       );
     })
   );

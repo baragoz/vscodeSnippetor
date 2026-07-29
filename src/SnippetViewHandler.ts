@@ -1,6 +1,7 @@
 import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
 import { ISnippetorFilesystemWrapper } from './ISnippetorFilesystemWrapper';
+import { UML_EDITOR_VIEW_TYPE } from './umlEditorViewType';
 
 function generateUID(): string {
   return 'uid-' + Math.random().toString(36).substring(2, 10);
@@ -71,29 +72,61 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
             : fullPath;
 
         const fileName = this.fsWrapper.getBasenameFromAbsolute(relativePath);
-        const snippetLine = `${fileName}:${line}`;
-
-        this.cachedFilePath = relativePath;
-        this.cachedSnippetLine = snippetLine;
-
-        if (this.editUid !== "") {
-          this.apiProvider.postMessage({
-            command: 'updateFilePath',
-            data: {
-              uid: this.editUid,
-              filePath: relativePath,
-              line: snippetLine
-            }
-          });
-        }
+        this.updateCachedTarget(relativePath, `${fileName}:${line}`);
       }
     });
+  }
+
+  /**
+   * Captures a UML diagram tab as the "New Snippet Item" target the same
+   * passive way a code selection is — merely focusing the diagram tab
+   * updates the cache. There's no line-number concept for a diagram (v1
+   * scope, see Readme.uml_snippet.md): the label is just the file's
+   * basename, and no highlighting/element tracking happens.
+   */
+  private setupActiveCustomTabListener(): void {
+    if (!this.apiProvider) {
+      return;
+    }
+    this.apiProvider.onDidChangeActiveCustomTab((tab) => {
+      if (!tab || tab.viewType !== UML_EDITOR_VIEW_TYPE) {
+        return;
+      }
+      const workspaceFolder = this.apiProvider.getWorkspaceFolder(tab.uri);
+      const relativePath = workspaceFolder
+          ? this.fsWrapper.computeRelativePath(workspaceFolder, tab.uri.fsPath)
+          : tab.uri.fsPath;
+
+      const fileName = this.fsWrapper.getBasenameFromAbsolute(relativePath);
+      this.updateCachedTarget(relativePath, fileName);
+    });
+  }
+
+  /**
+   * Shared by both capture listeners: update the cache "New Snippet Item"
+   * reads from, and push the change live if an existing item is mid-edit.
+   */
+  private updateCachedTarget(relativePath: string, label: string): void {
+    this.cachedFilePath = relativePath;
+    this.cachedSnippetLine = label;
+
+    if (this.editUid !== "") {
+      this.apiProvider.postMessage({
+        command: 'updateFilePath',
+        data: {
+          uid: this.editUid,
+          filePath: relativePath,
+          line: label
+        }
+      });
+    }
   }
 
   // Set API provider (called after base provider is created)
   public setApiProvider(apiProvider: ISnippetorApiProvider): void {
     this.apiProvider = apiProvider;
     this.setupSelectionListener();
+    this.setupActiveCustomTabListener();
   }
 
   // Implement ISnippetorWebViewHandler interface
@@ -130,8 +163,14 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         case 'openSnippetItem': {
             const snippet = this.snippetList.find(s => s.uid === message.data.uid);
             if (snippet) {
-              const line = parseInt(snippet.line.split(":")[1]);
-              await this.apiProvider.showTextDocument(snippet.filePath, line);
+              if (snippet.filePath.toLowerCase().endsWith('.umlsync')) {
+                // Whole-diagram-file linking only (see Readme.uml_snippet.md) —
+                // no line number to jump to, open it in the UML editor as-is.
+                await this.apiProvider.openCustomEditor(snippet.filePath, UML_EDITOR_VIEW_TYPE);
+              } else {
+                const line = parseInt(snippet.line.split(":")[1]);
+                await this.apiProvider.showTextDocument(snippet.filePath, line);
+              }
 
               // NOW it is an active snippet item
               this.activeUid = snippet.uid;
