@@ -52,12 +52,6 @@
         "priority": "default"
       }
     ],
-    "mcpServerDefinitionProviders": [
-      {
-        "id": "vscodeSnippetor.umlsyncMcp",
-        "label": "umlsync diagram tools"
-      }
-    ],
     "commands": [
       {
         "command": "swArchitectureSnippets.addSelectionToSnippet",
@@ -66,6 +60,10 @@
       {
         "command": "snippetor.uml.newDiagram",
         "title": "New UML Diagram"
+      },
+      {
+        "command": "snippetor.uml.installSkills",
+        "title": "UML: Install Diagram Skills for Claude Code"
       },
       {
         "command": "workingSnippet.newItem",
@@ -106,9 +104,8 @@
   "scripts": {
     "build:snippet-view": "node scripts/build-snippet-view.js",
     "build:umlsync": "node scripts/build-umlsync-view.js",
-    "build:mcp": "node scripts/build-mcp.js",
     "build:bundle": "node scripts/build-bundle.js",
-    "compile": "npm run build:snippet-view && npm run build:umlsync && npm run build:mcp && npm run build:bundle",
+    "compile": "npm run build:snippet-view && npm run build:umlsync && npm run build:bundle",
     "compile:vscode-test": "tsc -p ./tsconfig.vscode-test.json",
     "test-host": "vitest run",
     "test:vscode": "npm run compile && npm run compile:vscode-test && vscode-test",
@@ -117,7 +114,7 @@
   "files": [
     "out",
     "media",
-    "mcp/dist"
+    "skills"
   ],
   "resources": [
     "out/extension/media/snippetView.html",

@@ -124,7 +124,9 @@ media/
 ```
 
 (UML editor's `src/*Uml*.ts` and `media/umlsync/` are documented separately in
-[Readme.uml.md](Readme.uml.md); the MCP server in [Readme.mcp.md](Readme.mcp.md).)
+[Readme.uml.md](Readme.uml.md); the installable Claude Code diagram-editing skills in
+[Readme.uml_skills.md](Readme.uml_skills.md) — these replaced an earlier MCP-server-based
+approach, see [Readme.mcp.md](Readme.mcp.md).)
 
 ---
 
@@ -171,7 +173,7 @@ SnippetViewHandler
 ## Build
 
 ```bash
-npm run compile          # build:snippet-view + build:umlsync + build:mcp + build:bundle
+npm run compile          # build:snippet-view + build:umlsync + build:bundle
 ```
 
 Output goes to `out/extension/`. The extension entry point is `out/extension/extension.js`.

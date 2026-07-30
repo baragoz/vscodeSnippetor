@@ -5,7 +5,7 @@ import { SnippetorFilesystemsWrapper } from './SnippetorFilesystemsWrapper';
 import { SnippetJsonEditorProvider } from './SnippetJsonEditorProvider';
 import { UmlFilesystemWrapper } from './UmlFilesystemWrapper';
 import { DiagramEditorProvider } from './DiagramEditorProvider';
-import { UmlMcpServerProvider } from './UmlMcpServerProvider';
+import { installUmlSkills } from './installUmlSkills';
 
 export function activate(context: vscode.ExtensionContext) {
   // Create a single filesystem wrapper instance
@@ -45,19 +45,6 @@ export function activate(context: vscode.ExtensionContext) {
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
-
-  //
-  // MCP SERVER — publishes umlsync-mcp (see mcp/, Readme.mcp.md) to VS Code's
-  // own MCP-consuming features, run via the editor's embedded Node.js. Guarded
-  // since it needs a VS Code version with vscode.lm.registerMcpServerDefinitionProvider.
-  //
-  if (vscode.lm?.registerMcpServerDefinitionProvider) {
-    const umlMcpProvider = new UmlMcpServerProvider(context);
-    context.subscriptions.push(
-      umlMcpProvider,
-      vscode.lm.registerMcpServerDefinitionProvider('vscodeSnippetor.umlsyncMcp', umlMcpProvider)
-    );
-  }
 
   console.log('Extension "Software Architecture Snippets" is now active!');
 
@@ -130,6 +117,41 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.Uri.file(uri.fsPath),
         DiagramEditorProvider.viewType
       );
+    })
+  );
+
+  context.subscriptions.push(
+    //
+    // INSTALL UML SKILLS — copies this extension's bundled Claude Code skills
+    // (skills/uml-*, skills/_uml-shared) into the current workspace's
+    // .claude/skills/, so an agent can create/edit .umlsync files directly
+    // with no MCP server involved (see Readme.uml_skills.md).
+    //
+    vscode.commands.registerCommand('snippetor.uml.installSkills', async () => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('Open a folder/workspace first to install the UML diagram skills into it.');
+        return;
+      }
+
+      let result = installUmlSkills(context.extensionPath, workspaceFolder.uri.fsPath);
+
+      if (result.conflicts.length > 0) {
+        const overwrite = await vscode.window.showWarningMessage(
+          `${result.conflicts.length} UML skill folder(s) already exist in .claude/skills/ with local changes: ${result.conflicts.join(', ')}. Overwrite them?`,
+          { modal: true },
+          'Overwrite'
+        );
+        if (overwrite === 'Overwrite') {
+          result = installUmlSkills(context.extensionPath, workspaceFolder.uri.fsPath, { overwriteConflicts: true });
+        }
+      }
+
+      const parts: string[] = [];
+      if (result.installed.length > 0) parts.push(`installed: ${result.installed.join(', ')}`);
+      if (result.skippedIdentical.length > 0) parts.push(`already up to date: ${result.skippedIdentical.join(', ')}`);
+      if (result.conflicts.length > 0) parts.push(`left unchanged (local edits kept): ${result.conflicts.join(', ')}`);
+      vscode.window.showInformationMessage(`UML diagram skills — ${parts.join('; ')}.`);
     })
   );
 

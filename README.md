@@ -55,22 +55,23 @@ code --extensionDevelopmentPath="$PWD" --new-window
 
 -----
 
-## 🔌 MCP Server — AI-Driven Diagram Editing
+## 🤖 AI-Driven Diagram Editing — Claude Code Skills
 
-Snippetor ships an [MCP](https://modelcontextprotocol.io) server (`mcp/`) that
-lets an AI agent build and edit `.umlsync` diagrams programmatically — create
-a diagram, add classes/packages/components, wire up connectors — without a
-human dragging shapes on the canvas. See [Readme.mcp.md](Readme.mcp.md) for
-the full list of tools.
+Snippetor ships installable [Claude Code](https://claude.com/product/claude-code)
+skills (one per diagram kind: class, package, component, state, sequence) that
+teach an AI agent the `.umlsync` JSON format directly — no server, no process
+to spawn. Run **"UML: Install Diagram Skills for Claude Code"** from the
+Command Palette to copy them into your workspace's `.claude/skills/`, then ask
+your agent to create or edit a diagram the same way you'd ask it to edit any
+other source file. See [Readme.uml_skills.md](Readme.uml_skills.md) for the
+full design (this replaced an earlier MCP-server-based approach — see
+[Readme.mcp.md](Readme.mcp.md) for why).
 
-  * **Works out of the box in VS Code:** the extension registers the server
-    automatically, launched via VS Code's own embedded Node.js — no separate
-    Node.js install, and no manual MCP configuration. Just open Copilot Chat's
-    tools picker and look for **"umlsync diagram tools"**.
-  * **Also usable from other MCP clients** (Claude Code, etc.) by pointing
-    them at `mcp/dist/index.js` over stdio.
-  * **Same privacy-first model as the rest of the extension:** it only reads
-    and writes files on your machine — nothing is sent to a remote server.
+  * **Nothing to run:** the skills are plain markdown, read once into the
+    agent's context — no child process, no build step, no MCP client config.
+  * **Same privacy-first model as the rest of the extension:** the agent only
+    reads and writes files in your workspace — nothing is sent to a remote
+    server.
 
 -----
 
@@ -88,10 +89,9 @@ npm install
 
 | Command | Description |
 |---|---|
-| `npm run compile` | Full build — Working Snippet webview, UML editor webview, MCP server, and the TypeScript extension bundle |
+| `npm run compile` | Full build — Working Snippet webview, UML editor webview, and the TypeScript extension bundle |
 | `npm run build:snippet-view` | Copies `media/snippetView.html` (a self-contained file, no separate JS/CSS to assemble) to `out/extension/media/` |
 | `npm run build:umlsync` | Rebuilds the UML diagram editor webview (copies the `umlsync` vendor bundle + assembles `umlEditor.html`) |
-| `npm run build:mcp` | Type-checks and bundles the MCP server (`mcp/` → `mcp/dist/index.js`); see [Readme.mcp.md](Readme.mcp.md) |
 | `npm run build:bundle` | Compiles the TypeScript extension bundle |
 
 ### Test targets
