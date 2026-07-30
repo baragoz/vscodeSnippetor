@@ -1,9 +1,10 @@
-// File: installUmlSkills.ts
+// File: installSnippetorSkills.ts
 //
-// Copies this extension's bundled Claude Code skills (skills/uml-*, skills/_uml-shared —
-// see Readme.uml_skills.md) into a workspace's .claude/skills/ directory, so an agent working
-// in that workspace can create/edit .umlsync files directly (no MCP server — see Readme.mcp.md,
-// which this replaces).
+// Copies this extension's bundled Claude Code skills (skills/uml-*, skills/_uml-shared,
+// skills/snippetor-snippet — see Readme.uml_skills.md) into a workspace's .claude/skills/
+// directory, so an agent working in that workspace can create/edit .umlsync diagrams and
+// .snippet.json walkthroughs directly (no MCP server — see Readme.mcp.md, which this replaces
+// for the diagram side).
 //
 // Plain fs, no vscode.workspace.fs: everything here is real absolute paths on disk (the
 // extension's own install location, and the workspace root), same "no abstract path layer"
@@ -12,16 +13,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const UML_SKILL_NAMES = [
+export const SNIPPETOR_SKILL_NAMES = [
   '_uml-shared',
   'uml-class-diagram',
   'uml-package-diagram',
   'uml-components-diagram',
   'uml-state-diagram',
-  'uml-sequence-diagram'
+  'uml-sequence-diagram',
+  'snippetor-snippet'
 ];
 
-export interface InstallUmlSkillsResult {
+export interface InstallSnippetorSkillsResult {
   installed: string[];
   skippedIdentical: string[];
   conflicts: string[];
@@ -55,17 +57,17 @@ function isIdentical(a: string, b: string): boolean {
  * re-run with `overwriteConflicts: true` after confirming with the user; this function never
  * silently clobbers a local edit.
  */
-export function installUmlSkills(
+export function installSnippetorSkills(
   extensionPath: string,
   workspaceRoot: string,
   options: { overwriteConflicts: boolean } = { overwriteConflicts: false }
-): InstallUmlSkillsResult {
+): InstallSnippetorSkillsResult {
   const sourceSkillsDir = path.join(extensionPath, 'skills');
   const destSkillsDir = path.join(workspaceRoot, '.claude', 'skills');
 
-  const result: InstallUmlSkillsResult = { installed: [], skippedIdentical: [], conflicts: [] };
+  const result: InstallSnippetorSkillsResult = { installed: [], skippedIdentical: [], conflicts: [] };
 
-  for (const skillName of UML_SKILL_NAMES) {
+  for (const skillName of SNIPPETOR_SKILL_NAMES) {
     const sourceDir = path.join(sourceSkillsDir, skillName);
     const destDir = path.join(destSkillsDir, skillName);
 

@@ -55,16 +55,23 @@ code --extensionDevelopmentPath="$PWD" --new-window
 
 -----
 
-## 🤖 AI-Driven Diagram Editing — Claude Code Skills
+## 🤖 AI-Driven Editing — Claude Code Skills
 
 Snippetor ships installable [Claude Code](https://claude.com/product/claude-code)
-skills (one per diagram kind: class, package, component, state, sequence) that
-teach an AI agent the `.umlsync` JSON format directly — no server, no process
-to spawn. Run **"UML: Install Diagram Skills for Claude Code"** from the
-Command Palette to copy them into your workspace's `.claude/skills/`, then ask
-your agent to create or edit a diagram the same way you'd ask it to edit any
-other source file. See [Readme.uml_skills.md](Readme.uml_skills.md) for the
-full design (this replaced an earlier MCP-server-based approach — see
+skills that teach an AI agent this extension's file formats directly — no
+server, no process to spawn:
+
+  * One skill per UML diagram kind (class, package, component, state,
+    sequence) for hand-authoring `.umlsync` JSON.
+  * One skill for `.snippet.json` — building an annotated code walkthrough
+    (optionally including one of the diagrams above as a step).
+
+Run **"Snippetor: Install AI Skills for Claude Code"** from the Command
+Palette to copy them into your workspace's `.claude/skills/`, then ask your
+agent to create or edit a diagram, or document some code as a walkthrough,
+the same way you'd ask it to edit any other source file. See
+[Readme.uml_skills.md](Readme.uml_skills.md) for the full design (this
+replaced an earlier MCP-server-based approach for diagrams — see
 [Readme.mcp.md](Readme.mcp.md) for why).
 
   * **Nothing to run:** the skills are plain markdown, read once into the

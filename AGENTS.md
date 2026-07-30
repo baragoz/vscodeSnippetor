@@ -124,9 +124,9 @@ media/
 ```
 
 (UML editor's `src/*Uml*.ts` and `media/umlsync/` are documented separately in
-[Readme.uml.md](Readme.uml.md); the installable Claude Code diagram-editing skills in
-[Readme.uml_skills.md](Readme.uml_skills.md) — these replaced an earlier MCP-server-based
-approach, see [Readme.mcp.md](Readme.mcp.md).)
+[Readme.uml.md](Readme.uml.md); the installable Claude Code skills — diagram-editing plus
+`.snippet.json` annotation — in [Readme.uml_skills.md](Readme.uml_skills.md) — the diagram
+skills replaced an earlier MCP-server-based approach, see [Readme.mcp.md](Readme.mcp.md).)
 
 ---
 

@@ -62,8 +62,8 @@
         "title": "New UML Diagram"
       },
       {
-        "command": "snippetor.uml.installSkills",
-        "title": "UML: Install Diagram Skills for Claude Code"
+        "command": "snippetor.installSkills",
+        "title": "Snippetor: Install AI Skills for Claude Code"
       },
       {
         "command": "workingSnippet.newItem",
