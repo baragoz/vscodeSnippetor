@@ -77,27 +77,45 @@ functionality — see [Readme.uml.md](Readme.uml.md).
 
 ## Snippet file format (`.snippet.json`, legacy `.snippet`)
 
+On disk, a snippet file is the same envelope `snippetor_cli` (a separate repo) reads and writes
+— `react_snippet_framework/docs/CLI/local_snippets.schema.md`'s `LocalSnippetFile`:
+`{ origin?, content }`, `content` holding this extension's actual payload:
+
 ```json
 {
-  "title": "Auth flow overview",
-  "description": "Describes the token refresh path",
-  "snippets": [
-    {
-      "uid": "uid-abc123",
-      "text": "Entry point for refresh",
-      "filePath": "src/auth/TokenService.ts",
-      "line": "TokenService.ts:42"
-    }
-  ]
+  "origin": { "blobId": "node_abc123", "version": 3, "lastModified": 1700000000000 },
+  "content": {
+    "title": "Auth flow overview",
+    "description": "Describes the token refresh path",
+    "snippets": [
+      {
+        "uid": "uid-abc123",
+        "text": "Entry point for refresh",
+        "filePath": "src/auth/TokenService.ts",
+        "line": "TokenService.ts:42"
+      }
+    ]
+  }
 }
 ```
 
-- `filePath`: path relative to the VSCode workspace root (computed via
+- `origin`: sync provenance written by `snippetor_cli pull`/`push` — **absent on a brand-new or
+  never-synced file.** This extension never invents, modifies, or bumps it; a resave of the same
+  path carries it forward byte-for-byte (`SnippetViewHandler.currentOrigin`), so a snippet
+  already pulled/pushed by the CLI doesn't look "new" to a later `push`. "Save As" to a
+  *different* path always drops it — that's a new, unsynced local copy, not the same remote
+  snippet under a new name.
+- `content.filePath`: path relative to the VSCode workspace root (computed via
   `computeRelativePath(workspaceFolder, absoluteFilePath)`).
-- `line`: display label in format `"basename:lineNumber"` (1-indexed).
-- `uid`: random string used as the UI key, not persisted meaningfully.
+- `content.line`: display label in format `"basename:lineNumber"` (1-indexed).
+- `content.uid`: random string used as the UI key, not persisted meaningfully.
 - The snippet *file's own* path is never stored inside the file — it's implicit (wherever the
   user saved it), tracked in memory as `SnippetViewHandler.currentSnippetFullPath` while open.
+- **Backward compatibility:** a legacy file with `title`/`description`/`snippets` flat at the top
+  level (no `content` key — how every file looked before the CLI's envelope shape existed) still
+  reads correctly; it just has no `origin` (never CLI-synced) and gets migrated to the envelope
+  shape the next time it's saved. There's no dual-shape writer — detection is read-only, based on
+  whether a top-level `content` key is present.
 
 ---
 

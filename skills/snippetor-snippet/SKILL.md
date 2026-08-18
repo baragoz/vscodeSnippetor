@@ -19,28 +19,46 @@ diagram from a snippet, not drawing one.
 
 ## File shape
 
+The file on disk is an envelope, not a bare object — `{ origin?, content }`, matching what
+`snippetor_cli` (a separate CLI tool that can `pull`/`push` these same files to a backend) reads
+and writes. `content` is where the actual walkthrough lives:
+
 ```json
 {
-  "title": "Auth flow overview",
-  "description": "How a request's token gets validated and refreshed",
-  "snippets": [
-    {
-      "uid": "uid-a1b2c3d4",
-      "text": "Entry point — every request passes through here first.",
-      "filePath": "src/auth/TokenService.ts",
-      "line": "TokenService.ts:42"
-    }
-  ]
+  "content": {
+    "title": "Auth flow overview",
+    "description": "How a request's token gets validated and refreshed",
+    "snippets": [
+      {
+        "uid": "uid-a1b2c3d4",
+        "text": "Entry point — every request passes through here first.",
+        "filePath": "src/auth/TokenService.ts",
+        "line": "TokenService.ts:42"
+      }
+    ]
+  }
 }
 ```
 
 - Extension is `.snippet.json` (preferred) or the legacy `.snippet` — identical JSON either way.
-- `title`/`description`: free text summarizing what the walkthrough demonstrates. Fine to leave
-  both `""` for a quick/unnamed snippet.
-- `snippets`: the ordered array of steps. **Array order is tour order** — the first entry is
-  what someone sees first when they open the file, not necessarily top-to-bottom-in-the-source
+- `content.title`/`content.description`: free text summarizing what the walkthrough demonstrates.
+  Fine to leave both `""` for a quick/unnamed snippet.
+- `content.snippets`: the ordered array of steps. **Array order is tour order** — the first entry
+  is what someone sees first when they open the file, not necessarily top-to-bottom-in-the-source
   order. Order it however tells the best story (e.g. call order across files, not line order
   within one file).
+- **Creating a new file**: write exactly the shape above — `{ content }`, no `origin` key at all.
+  That's what marks it as a brand-new, never-synced snippet.
+- **Editing an existing file that already has a top-level `origin` key** (`{ blobId, version,
+  lastModified }` — meaning `snippetor_cli` has already pulled or pushed it): edit inside
+  `content` as normal, but **copy `origin` through to the saved file completely unchanged.**
+  Never regenerate it, drop it, or touch `blobId`/`version`/`lastModified` yourself — those are
+  the CLI's bookkeeping, and dropping `origin` makes the CLI think an already-synced snippet is
+  brand new, which can cause it to create a duplicate on its next `push`.
+- **Editing an existing file with no `content` key at all** (a legacy file predating this
+  envelope shape — plain `{ title, description, snippets }` at the top level): treat the whole
+  object as the payload to edit, same fields, then **write it back in the `{ content }` envelope**
+  (still no `origin` — it was never CLI-synced). Don't leave it in the old flat shape.
 
 ## A code step
 

@@ -8,6 +8,20 @@ function generateUID(): string {
 }
 
 /**
+ * Sync provenance for a snippet file that's been pulled/pushed by
+ * `snippetor_cli` at least once — mirrors that repo's `SnippetOrigin`
+ * (see `react_snippet_framework/docs/CLI/local_snippets.schema.md`).
+ * Never invented or modified here, only round-tripped: the extension isn't
+ * a sync participant, it just has to avoid corrupting the CLI's bookkeeping
+ * when it resaves a file the CLI already knows about.
+ */
+interface SnippetOrigin {
+  blobId: string;
+  version: number;
+  lastModified: number;
+}
+
+/**
  * Handles the Working Snippet sidebar (`workingSnippetView`).
  *
  * A snippet is a plain project file (see Readme.snippets.md) — there is no
@@ -42,6 +56,10 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   private fsWrapper: ISnippetorFilesystemWrapper;
   // Absolute path of the currently open snippet file ('' if none/unsaved)
   private currentSnippetFullPath: string = '';
+  // Sync provenance carried over from the currently open file, if it was
+  // already pulled/pushed by snippetor_cli; undefined for a brand-new or
+  // never-synced local file.
+  private currentOrigin: SnippetOrigin | undefined = undefined;
   // True when snippet has unsaved changes
   private isModified: boolean = false;
   // API provider for VSCode operations (set via setApiProvider)
@@ -294,6 +312,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
     this.snippetHead = { title: "", description: "", path: ""};
     this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: ""};
     this.currentSnippetFullPath = '';
+    this.currentOrigin = undefined;
     this.isModified = false;
   }
 
@@ -308,6 +327,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
     this.snippetHead = { title: "", description: "", path: ""};
     this.snippetHeadProposal= { title: "", description: "", path: ""};
     this.currentSnippetFullPath = '';
+    this.currentOrigin = undefined;
     this.isModified = false;
     this.refresh();
   }
@@ -332,8 +352,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         this.writeSnippetToPath(this.currentSnippetFullPath);
       }
     }
-    const { error, snippets, head } = this.readSnippetFromFileItem(absolutePath);
-    this.loadSnippetFromJSON(error, snippets, head);
+    const { error, snippets, head, origin } = this.readSnippetFromFileItem(absolutePath);
+    this.loadSnippetFromJSON(error, snippets, head, origin);
   }
 
   //
@@ -342,7 +362,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   public loadSnippetFromJSON(
     error: string,
     snippetList : {  uid: string, text: string, filePath: string; line: string }[],
-    head : { title: string, description: string, path: string}) {
+    head : { title: string, description: string, path: string},
+    origin?: SnippetOrigin) {
 
       if (error !== "") {
         //
@@ -354,6 +375,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: head.path};
         this.snippetList = [];
         this.currentSnippetFullPath = '';
+        this.currentOrigin = undefined;
       }
       else {
         this.errorMessage = ""; // reset error
@@ -364,6 +386,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         this.snippetList = snippetList;
         // head.path is already the real absolute path of the file
         this.currentSnippetFullPath = head.path;
+        // Sync provenance, if this file was already pulled/pushed by the CLI
+        this.currentOrigin = origin;
       }
 
       // reset edit, active and modified states
@@ -413,17 +437,28 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   /**
    * Write the current title/description/snippet list straight to an
    * absolute path, no dialog.
+   *
+   * On-disk shape is the CLI's envelope (`local_snippets.schema.md`'s
+   * `LocalSnippetFile`): `{ origin?, content }`, `content` holding
+   * title/description/snippets. Only a resave of the *same* path carries
+   * `origin` forward — "Save As" to a different path is a new, unsynced
+   * local copy, not the same remote snippet under a new name, so it must
+   * come out as `{ content }` with no `origin`, same as any other
+   * never-synced file.
    */
   private writeSnippetToPath(absolutePath: string): void {
-    const content = {
+    const payload = {
       title: this.snippetHeadProposal.title,
       description: this.snippetHeadProposal.description,
       snippets: this.snippetList
     };
+    const origin = absolutePath === this.currentSnippetFullPath ? this.currentOrigin : undefined;
+    const content = origin ? { origin, content: payload } : { content: payload };
 
     try {
       this.fsWrapper.writeFile(absolutePath, JSON.stringify(content, null, 2), 'utf-8');
       this.currentSnippetFullPath = absolutePath;
+      this.currentOrigin = origin;
       this.snippetHead = { ...this.snippetHeadProposal, path: absolutePath };
       this.snippetHeadProposal = { ...this.snippetHead };
       this.isModified = false;
@@ -453,6 +488,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   public readSnippetFromFileItem(absolutePath: string): {
     error: string; snippets: any[];
     head: {title: string; description: string; path: string};
+    origin?: SnippetOrigin;
   } {
     if (!this.fsWrapper.exists(absolutePath)) {
       this.apiProvider.showErrorMessage('Snippet file not found.');
@@ -481,14 +517,25 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
     try {
       const json = JSON.parse(trimmed);
 
-      const title = typeof json.title === 'string' ? json.title : '';
+      // CLI on-disk shape (local_snippets.schema.md's `LocalSnippetFile`):
+      // `{ origin?, content }`, `content` opaque. A legacy vscodeSnippetor
+      // file has title/description/snippets at the top level instead --
+      // detect by presence of `content`, which the envelope always has
+      // (required) and a legacy file never does.
+      const isEnvelope = json !== null && typeof json === 'object' && Object.prototype.hasOwnProperty.call(json, 'content');
+      const payload = isEnvelope ? json.content : json;
+      const origin: SnippetOrigin | undefined =
+          isEnvelope && json.origin && typeof json.origin === 'object' ? json.origin : undefined;
+
+      const title = typeof payload?.title === 'string' ? payload.title : '';
       const description =
-          typeof json.description === 'string' ? json.description : '';
+          typeof payload?.description === 'string' ? payload.description : '';
 
       return {
         error: '',
-        snippets: Array.isArray(json.snippets) ? json.snippets : [],
-        head: {title, description, path: absolutePath}
+        snippets: Array.isArray(payload?.snippets) ? payload.snippets : [],
+        head: {title, description, path: absolutePath},
+        origin
       };
     } catch (err: any) {
       // Not valid JSON. There's no tab to fix it by hand (see
