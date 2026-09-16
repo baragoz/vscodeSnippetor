@@ -54,6 +54,15 @@ next id = max(all element ids, all connector ids, all connector-label ids in the
   integers are simplest for hand-authored files and are what this rule assumes.
 - Never reuse an id after removing its element/connector, even within the same editing session.
 
+**Important — every id must be unique across the whole file.** No two elements may share an id,
+no two connectors may share an id, and no element may share an id with a connector — `elements[]`
+and `connectors[]` draw from the same single pool, not two independent ones. Before assigning a
+new id, check it against *both* arrays (and existing `labels[].id` entries), not just the one
+you're adding to.
+
+**Important — ids start at 1, not 0.** `0` is never a valid element/connector/label id, even on
+the very first item added to an empty file — the pool's first assigned id is `1`.
+
 ## Adding an element
 
 ```json
