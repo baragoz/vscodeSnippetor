@@ -66,7 +66,11 @@ functionality — see [Readme.uml.md](Readme.uml.md).
 2. **All VSCode API calls are isolated behind `ISnippetorApiProvider`.**
    `SnippetViewHandler` never imports `vscode` directly. It receives an `ISnippetorApiProvider`
    instance via `setApiProvider()`. This includes the native "Save As" dialog
-   (`showSaveDialog`) and view-focus (`focusView`) used by the save/open flow.
+   (`showSaveDialog`), view-focus (`focusView`) used by the save/open flow, and
+   `getGitRepositoryInfo` (backed by VS Code's built-in `vscode.git` extension, via
+   `gitExtension.d.ts`) used to populate `content.repos` on save — it takes a plain absolute
+   path rather than a `vscode.Uri`, precisely so the handler doesn't need a `vscode` import just
+   to call it.
 
 3. **All filesystem operations are isolated behind `ISnippetorFilesystemWrapper`.**
    The handler calls `readFile`/`writeFile`/`exists`/`dirname`/`basename`/`computeRelativePath`
@@ -79,21 +83,24 @@ functionality — see [Readme.uml.md](Readme.uml.md).
 
 On disk, a snippet file is the same envelope `snippetor_cli` (a separate repo) reads and writes
 — `react_snippet_framework/docs/CLI/local_snippets.schema.md`'s `LocalSnippetFile`:
-`{ origin?, content }`, `content` holding this extension's actual payload:
+`{ origin?, content }`, `content` a `BaseSnippetContent` v2 object
+(`react_snippet_framework/docs/R2/storage_snippet.schema.md`'s "Content schema (target)"):
 
 ```json
 {
   "origin": { "blobId": "node_abc123", "version": 3, "lastModified": 1700000000000 },
   "content": {
+    "schema": 2,
     "title": "Auth flow overview",
     "description": "Describes the token refresh path",
-    "snippets": [
-      {
-        "uid": "uid-abc123",
-        "text": "Entry point for refresh",
-        "filePath": "src/auth/TokenService.ts",
-        "line": "TokenService.ts:42"
-      }
+    "version": 0,
+    "created": 1723660000000,
+    "modified": 1723663600000,
+    "repos": [
+      { "id": 0, "url": "https://github.com/acme/widgets.git", "commitId": "abc123", "branch": "main" }
+    ],
+    "notes": [
+      { "path": "src/auth/TokenService.ts", "line": 42, "text": "Entry point for refresh", "rid": 0 }
     ]
   }
 }
@@ -105,17 +112,43 @@ On disk, a snippet file is the same envelope `snippetor_cli` (a separate repo) r
   already pulled/pushed by the CLI doesn't look "new" to a later `push`. "Save As" to a
   *different* path always drops it — that's a new, unsynced local copy, not the same remote
   snippet under a new name.
-- `content.filePath`: path relative to the VSCode workspace root (computed via
+- `content.schema`: constant `2`.
+- `content.version`: `0` for a brand-new snippet, otherwise carried forward unchanged from the
+  currently open file on a resave of the *same* path (`SnippetViewHandler.currentContentMeta`) —
+  this extension has no concept of content *versions*, only "the current file on disk"; a real
+  version number is the CLI's/backend's job to assign. Same "same path vs. new path" carry-forward
+  rule as `origin`, so "Save As" resets it to `0`.
+- `content.created`/`content.modified`: epoch ms. `created` carries forward the same way
+  `version` does; `modified` is stamped fresh on every save.
+- `content.repos`: sourced from VS Code's built-in `vscode.git` extension at save time
+  (`ISnippetorApiProvider.getGitRepositoryInfo`, keyed off the snippet file's own path) — the
+  `origin` remote's URL plus the current `HEAD` commit/branch. Empty `[]` when the snippet isn't
+  inside a git repo, or the repo has no `origin` remote. At most one entry (`id: 0`) — no
+  multi-repo note targeting today.
+- `content.notes[].path`: path relative to the VSCode workspace root (computed via
   `computeRelativePath(workspaceFolder, absoluteFilePath)`).
-- `content.line`: display label in format `"basename:lineNumber"` (1-indexed).
-- `content.uid`: random string used as the UI key, not persisted meaningfully.
+- `content.notes[].line`: the real 1-based line number (`selection.active.line + 1`), not a
+  display label — the `"basename:line"` label the UI shows is derived from `path`/`line` in
+  memory (`SnippetViewHandler.notesToSnippetItems`/`legacySnippetsToSnippetItems`) and never
+  stored.
+- `content.notes[].lineCount`: optional; this extension's own capture flow never produces one
+  (no multi-line-selection concept), but preserves one it finds on an externally-authored file
+  across a resave rather than silently dropping it.
+- `content.notes[].rid`: `0` when `repos` is non-empty, unset when it's empty.
+- A UML-diagram-tab capture has no line number and so has no `notes[]` representation — it stays
+  a working-sidebar-only item (visible in the panel, addressable in memory) but is dropped from
+  `notes[]` on save, with a warning shown for how many were excluded. No `uid` in `notes[]`
+  either — it was always just a UI key, regenerated fresh (`generateUID()`) whenever a file is
+  read back in.
 - The snippet *file's own* path is never stored inside the file — it's implicit (wherever the
   user saved it), tracked in memory as `SnippetViewHandler.currentSnippetFullPath` while open.
-- **Backward compatibility:** a legacy file with `title`/`description`/`snippets` flat at the top
-  level (no `content` key — how every file looked before the CLI's envelope shape existed) still
-  reads correctly; it just has no `origin` (never CLI-synced) and gets migrated to the envelope
+- **Backward compatibility:** a pre-v2 file — either the CLI envelope's `content` holding
+  `{title, description, snippets: [{uid, text, filePath, line}]}` (`line` a `"basename:N"` string
+  label), or the even older legacy shape with those same fields flat at the top level (no
+  `content` key) — still reads correctly: the label's trailing `:N` is reverse-parsed back into a
+  real number the same way a fresh capture would produce it, and the file is migrated to the v2
   shape the next time it's saved. There's no dual-shape writer — detection is read-only, based on
-  whether a top-level `content` key is present.
+  whether the parsed payload has a `notes` array (v2) or a `snippets` array (pre-v2).
 
 ---
 
@@ -131,6 +164,7 @@ src/
   SnippetJsonEditorProvider.ts    # Redirect custom editor for *.snippet.json / *.snippet
   SnippetorFilesystemsWrapper.ts  # Thin real-fs wrapper (absolute paths only)
   ISnippetorFilesystemWrapper.ts  # Interface for the filesystem wrapper
+  gitExtension.d.ts               # Trimmed vendor copy of vscode.git's own API types
   test/
     MockFilesystemWrapper.ts      # In-memory FS for tests (absolute-path-keyed)
   tests/

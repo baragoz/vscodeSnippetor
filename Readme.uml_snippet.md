@@ -150,12 +150,21 @@ logic `showTextDocument` already has, [src/SnippetBaseProvider.ts:60-75](src/Sni
 and calling `vscode.commands.executeCommand('vscode.openWith', uri, viewType)` — the exact
 pattern `extension.ts`'s `snippetor.uml.newDiagram` command already uses today.
 
-### Data model — unchanged
+### Data model — unchanged in memory, not persisted since the v2 schema migration
 
-No change to the `.snippet.json` schema. A diagram item is just
-`{ uid, text, filePath: "diagrams/AuthFlow.umlsync", line: "AuthFlow.umlsync" }`. Both capture
-(step 1) and open (step 4) key off the `.umlsync` extension, not a new `type` field — keeps this
-a small, additive change rather than a schema migration.
+At the time this was written, no change to the `.snippet.json` schema was needed: a diagram item
+was just `{ uid, text, filePath: "diagrams/AuthFlow.umlsync", line: "AuthFlow.umlsync" }`, saved
+to disk the same as any other item. Both capture (step 1) and open (step 4) key off the
+`.umlsync` extension, not a new `type` field.
+
+**Since the `BaseSnippetContent` v2 migration**
+(`react_snippet_framework/docs/Plan.content-schema-v2-migration-vscode.md`), this is only true
+in memory. `notes[].line` is now a required number, and a diagram capture has none — so a
+diagram item still works exactly as described above inside the Working Snippet sidebar
+(captured, listed, opened via `openCustomEditor`), but is dropped from `notes[]` when the
+snippet file is saved, with a warning naming how many items were excluded (see AGENTS.md's
+"Snippet file format"). Persisting a diagram reference is out of scope until diagram-element
+selection tracking exists (see that plan's §3).
 
 ---
 

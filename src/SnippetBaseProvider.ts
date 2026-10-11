@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { ISnippetorWebViewHandler } from './ISnippetorWebViewHandler';
 import { ISnippetorApiProvider } from './ISnippetorApiProvider';
+import { GitExtension } from './gitExtension';
 
 /**
  * Base class for snippet providers with common webview functionality
@@ -227,6 +228,40 @@ export class SnippetBaseProvider implements vscode.WebviewViewProvider, ISnippet
 
   public setWorkspaceState(key: string, value: any): void {
     this.context.workspaceState.update(key, value);
+  }
+
+  /**
+   * Resolve the git repo owning `absolutePath` via VS Code's built-in
+   * `vscode.git` extension -- no subprocess spawn, and `getRepository(uri)`
+   * resolves the right repo in a multi-root/submodule workspace on its own
+   * (see Plan.content-schema-v2-migration-vscode.md §1d). Only an `origin`
+   * remote is recognized; a repo with other remotes but no `origin` is
+   * treated the same as "no remote" -- no persisted opinion yet about which
+   * of several non-origin remotes would be right.
+   */
+  public getGitRepositoryInfo(absolutePath: string): { remoteUrl?: string; commitSha?: string; branchName?: string } | undefined {
+    const gitExtension = vscode.extensions.getExtension<GitExtension>('vscode.git');
+    const gitApi = gitExtension?.exports.getAPI(1);
+    if (!gitApi) {
+      return undefined;
+    }
+
+    const repository = gitApi.getRepository(vscode.Uri.file(absolutePath));
+    if (!repository) {
+      return undefined;
+    }
+
+    const origin = repository.state.remotes.find((remote) => remote.name === 'origin');
+    const remoteUrl = origin?.fetchUrl ?? origin?.pushUrl;
+    if (!remoteUrl) {
+      return undefined;
+    }
+
+    return {
+      remoteUrl,
+      commitSha: repository.state.HEAD?.commit,
+      branchName: repository.state.HEAD?.name
+    };
   }
 
   // ============================================================================

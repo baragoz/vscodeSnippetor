@@ -22,6 +22,52 @@ interface SnippetOrigin {
 }
 
 /**
+ * A single in-memory snippet item, as used by both the extension host and
+ * the webview (see `AGENTS.md`'s messaging protocol). `line` stays the
+ * `"basename:N"` display label the webview has always rendered directly, no
+ * webview changes needed for the v2 migration; `lineNumber` is the real
+ * 1-based line the label is derived from, tracked alongside so it can be
+ * written straight into `BaseSnippetContent`'s `notes[].line` (a number)
+ * without ever having to reverse-parse the label (see
+ * react_snippet_framework/docs/Plan.content-schema-v2-migration-vscode.md
+ * §1c/§3). `undefined` for a UML-diagram-tab capture, which has no line
+ * concept at all -- such items are excluded from `notes[]` on save (§3).
+ * `lineCount` only ever arrives from an externally-authored v2 file (this
+ * extension's own capture flow never produces a range); carried through
+ * unedited so resaving here doesn't silently drop it.
+ */
+interface SnippetItem {
+  uid: string;
+  text: string;
+  filePath: string;
+  line: string;
+  lineNumber?: number;
+  lineCount?: number;
+}
+
+/**
+ * Content-level fields `BaseSnippetContent` v2 introduces that this
+ * extension never had a reason to track before (`schema`/`version`/
+ * `created` -- `modified` is always stamped fresh on save, so it isn't
+ * carried). Carried forward the same way `SnippetOrigin` is: only when
+ * resaving the *same* path, mirroring the existing "Save As is a new,
+ * unsynced copy" rule (§3 of the migration plan).
+ */
+interface SnippetContentMeta {
+  schema: number;
+  version: number;
+  created: number;
+}
+
+/** A repo entry in `BaseSnippetContent.repos[]` -- see §1d/§2 of the plan. */
+interface SnippetRepo {
+  id: number;
+  url: string;
+  commitId?: string;
+  branch?: string;
+}
+
+/**
  * Handles the Working Snippet sidebar (`workingSnippetView`).
  *
  * A snippet is a plain project file (see Readme.snippets.md) — there is no
@@ -38,7 +84,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   //
   // List of snippets
   //
-  private snippetList: {  uid: string, text: string, filePath: string; line: string }[] = [];
+  private snippetList: SnippetItem[] = [];
   private editUid: string = '';
   private activeUid: string = '';
   //
@@ -52,6 +98,9 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   // Cached path + selected line
   private cachedFilePath: string = '';
   private cachedSnippetLine: string = '';
+  // Real 1-based line number the label above was formatted from; undefined
+  // for a UML-diagram-tab capture, which has no line concept (see §1c/§3).
+  private cachedLineNumber: number | undefined = undefined;
   // Filesystem wrapper instance
   private fsWrapper: ISnippetorFilesystemWrapper;
   // Absolute path of the currently open snippet file ('' if none/unsaved)
@@ -60,6 +109,10 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   // already pulled/pushed by snippetor_cli; undefined for a brand-new or
   // never-synced local file.
   private currentOrigin: SnippetOrigin | undefined = undefined;
+  // Content-level schema/version/created carried over from the currently
+  // open file, same "same path vs. new path" carry-forward rule as
+  // currentOrigin; undefined for a brand-new or pre-v2 file.
+  private currentContentMeta: SnippetContentMeta | undefined = undefined;
   // True when snippet has unsaved changes
   private isModified: boolean = false;
   // API provider for VSCode operations (set via setApiProvider)
@@ -90,7 +143,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
             : fullPath;
 
         const fileName = this.fsWrapper.getBasenameFromAbsolute(relativePath);
-        this.updateCachedTarget(relativePath, `${fileName}:${line}`);
+        this.updateCachedTarget(relativePath, `${fileName}:${line}`, line);
       }
     });
   }
@@ -123,10 +176,14 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   /**
    * Shared by both capture listeners: update the cache "New Snippet Item"
    * reads from, and push the change live if an existing item is mid-edit.
+   * `lineNumber` is the real 1-based line the label was formatted from
+   * (undefined for a diagram-tab capture, which has none) -- see §1c/§3 of
+   * the migration plan.
    */
-  private updateCachedTarget(relativePath: string, label: string): void {
+  private updateCachedTarget(relativePath: string, label: string, lineNumber?: number): void {
     this.cachedFilePath = relativePath;
     this.cachedSnippetLine = label;
+    this.cachedLineNumber = lineNumber;
 
     if (this.editUid !== "") {
       this.apiProvider.postMessage({
@@ -246,7 +303,20 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         case 'updateSnippetItem': {
           const snippet = this.snippetList.find(s => s.uid === message.data.uid);
           if (snippet) {
+            // The webview always re-sends the item's current filePath/line
+            // alongside a text edit, whether or not the location actually
+            // changed -- only re-derive lineNumber (from the same cache the
+            // label came from, see updateCachedTarget) when it really did,
+            // otherwise a text-only edit would wipe a perfectly good numeric
+            // line for no reason.
+            const locationChanged =
+                (message.data.filePath !== undefined && message.data.filePath !== snippet.filePath) ||
+                (message.data.line !== undefined && message.data.line !== snippet.line);
             Object.assign(snippet, message.data);
+            if (locationChanged) {
+              snippet.lineNumber = this.cachedLineNumber;
+              snippet.lineCount = undefined;
+            }
             this.isModified = true;
           }
           // Reset the editable snippet item
@@ -277,9 +347,10 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
 
   public newSnippetItem(label: string) {
     const uid = generateUID();
-    const newItem = {
+    const newItem: SnippetItem = {
       filePath: this.cachedFilePath,
       line: this.cachedSnippetLine,
+      lineNumber: this.cachedLineNumber,
       uid,
       text:"" };
     //
@@ -313,6 +384,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
     this.snippetHeadProposal = this.snippetHead = { title: "", description: "", path: ""};
     this.currentSnippetFullPath = '';
     this.currentOrigin = undefined;
+    this.currentContentMeta = undefined;
     this.isModified = false;
   }
 
@@ -328,6 +400,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
     this.snippetHeadProposal= { title: "", description: "", path: ""};
     this.currentSnippetFullPath = '';
     this.currentOrigin = undefined;
+    this.currentContentMeta = undefined;
     this.isModified = false;
     this.refresh();
   }
@@ -352,8 +425,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         this.writeSnippetToPath(this.currentSnippetFullPath);
       }
     }
-    const { error, snippets, head, origin } = this.readSnippetFromFileItem(absolutePath);
-    this.loadSnippetFromJSON(error, snippets, head, origin);
+    const { error, snippets, head, origin, contentMeta } = this.readSnippetFromFileItem(absolutePath);
+    this.loadSnippetFromJSON(error, snippets, head, origin, contentMeta);
   }
 
   //
@@ -361,9 +434,10 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   //
   public loadSnippetFromJSON(
     error: string,
-    snippetList : {  uid: string, text: string, filePath: string; line: string }[],
+    snippetList : SnippetItem[],
     head : { title: string, description: string, path: string},
-    origin?: SnippetOrigin) {
+    origin?: SnippetOrigin,
+    contentMeta?: SnippetContentMeta) {
 
       if (error !== "") {
         //
@@ -376,6 +450,7 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         this.snippetList = [];
         this.currentSnippetFullPath = '';
         this.currentOrigin = undefined;
+        this.currentContentMeta = undefined;
       }
       else {
         this.errorMessage = ""; // reset error
@@ -388,6 +463,8 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
         this.currentSnippetFullPath = head.path;
         // Sync provenance, if this file was already pulled/pushed by the CLI
         this.currentOrigin = origin;
+        // Content-level schema/version/created, if this file was already v2
+        this.currentContentMeta = contentMeta;
       }
 
       // reset edit, active and modified states
@@ -439,18 +516,49 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
    * absolute path, no dialog.
    *
    * On-disk shape is the CLI's envelope (`local_snippets.schema.md`'s
-   * `LocalSnippetFile`): `{ origin?, content }`, `content` holding
-   * title/description/snippets. Only a resave of the *same* path carries
-   * `origin` forward — "Save As" to a different path is a new, unsynced
-   * local copy, not the same remote snippet under a new name, so it must
-   * come out as `{ content }` with no `origin`, same as any other
-   * never-synced file.
+   * `LocalSnippetFile`): `{ origin?, content }`, `content` now a
+   * `BaseSnippetContent` v2 object (`R2/storage_snippet.schema.md`) rather
+   * than the pre-v2 `{title, description, snippets}` shape -- see
+   * Plan.content-schema-v2-migration-vscode.md §2/§3. Only a resave of the
+   * *same* path carries `origin` (and the v2 `schema`/`version`/`created`
+   * fields) forward — "Save As" to a different path is a new, unsynced local
+   * copy, not the same remote snippet under a new name.
    */
   private writeSnippetToPath(absolutePath: string): void {
+    const meta = absolutePath === this.currentSnippetFullPath ? this.currentContentMeta : undefined;
+    const now = Date.now();
+    const schema = 2;
+    const version = meta?.version ?? 0;
+    const created = meta?.created ?? now;
+    const modified = now;
+
+    // A UML-diagram-tab capture has no line number and so can't be
+    // expressed as a `notes[]` entry (§3) -- excluded, surfaced to the user
+    // rather than silently dropped (same precedent as the Chrome extension
+    // plan's §5).
+    const notesItems = this.snippetList.filter((item) => item.lineNumber !== undefined);
+    const excludedCount = this.snippetList.length - notesItems.length;
+
+    const gitInfo = this.apiProvider.getGitRepositoryInfo(absolutePath);
+    const repos: SnippetRepo[] = gitInfo?.remoteUrl
+        ? [{ id: 0, url: gitInfo.remoteUrl, commitId: gitInfo.commitSha, branch: gitInfo.branchName }]
+        : [];
+
     const payload = {
+      schema,
       title: this.snippetHeadProposal.title,
       description: this.snippetHeadProposal.description,
-      snippets: this.snippetList
+      version,
+      created,
+      modified,
+      repos,
+      notes: notesItems.map((item) => ({
+        path: item.filePath,
+        line: item.lineNumber as number,
+        lineCount: item.lineCount,
+        text: item.text,
+        rid: repos.length > 0 ? 0 : undefined
+      }))
     };
     const origin = absolutePath === this.currentSnippetFullPath ? this.currentOrigin : undefined;
     const content = origin ? { origin, content: payload } : { content: payload };
@@ -459,10 +567,15 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
       this.fsWrapper.writeFile(absolutePath, JSON.stringify(content, null, 2), 'utf-8');
       this.currentSnippetFullPath = absolutePath;
       this.currentOrigin = origin;
+      this.currentContentMeta = { schema, version, created };
       this.snippetHead = { ...this.snippetHeadProposal, path: absolutePath };
       this.snippetHeadProposal = { ...this.snippetHead };
       this.isModified = false;
       this.apiProvider.showInformationMessage(`Snippet saved to: ${absolutePath}`);
+      if (excludedCount > 0) {
+        this.apiProvider.showWarningMessage(
+            `${excludedCount} diagram item(s) weren't saved — diagram references aren't supported in the snippet file format yet.`);
+      }
       this.refresh();
     } catch (err: any) {
       this.apiProvider.showErrorMessage(`Failed to save snippet: ${err.message}`);
@@ -483,12 +596,55 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
   }
 
   /**
+   * Build an in-memory `SnippetItem[]` from a v2 `BaseSnippetContent.notes[]`
+   * array (numeric `line` already present, nothing to reverse-parse).
+   */
+  private notesToSnippetItems(notes: unknown[]): SnippetItem[] {
+    return notes.map((note: any) => {
+      const path = typeof note?.path === 'string' ? note.path : '';
+      const line = typeof note?.line === 'number' ? note.line : undefined;
+      const fileName = this.fsWrapper.getBasenameFromAbsolute(path);
+      return {
+        uid: generateUID(),
+        text: typeof note?.text === 'string' ? note.text : '',
+        filePath: path,
+        line: line !== undefined ? `${fileName}:${line}` : fileName,
+        lineNumber: line,
+        lineCount: typeof note?.lineCount === 'number' ? note.lineCount : undefined
+      };
+    });
+  }
+
+  /**
+   * Build an in-memory `SnippetItem[]` from the pre-v2
+   * `{uid, text, filePath, line}[]` shape, `line` a `"basename:N"` display
+   * label — reverse-parse the trailing `:N` back into a number the same way
+   * `newSnippetItem` would have captured it (§1c/§3), rather than losing it.
+   * A label with no `:N` suffix (a pre-migration diagram-tab capture) yields
+   * `lineNumber: undefined`, same as a fresh diagram capture would.
+   */
+  private legacySnippetsToSnippetItems(snippets: unknown[]): SnippetItem[] {
+    return snippets.map((s: any) => {
+      const line = typeof s?.line === 'string' ? s.line : '';
+      const match = line.match(/:(\d+)$/);
+      return {
+        uid: typeof s?.uid === 'string' ? s.uid : generateUID(),
+        text: typeof s?.text === 'string' ? s.text : '',
+        filePath: typeof s?.filePath === 'string' ? s.filePath : '',
+        line,
+        lineNumber: match ? parseInt(match[1], 10) : undefined
+      };
+    });
+  }
+
+  /**
    * Read snippet from an absolute file path
    */
   public readSnippetFromFileItem(absolutePath: string): {
-    error: string; snippets: any[];
+    error: string; snippets: SnippetItem[];
     head: {title: string; description: string; path: string};
     origin?: SnippetOrigin;
+    contentMeta?: SnippetContentMeta;
   } {
     if (!this.fsWrapper.exists(absolutePath)) {
       this.apiProvider.showErrorMessage('Snippet file not found.');
@@ -531,9 +687,28 @@ export class SnippetViewHandler implements ISnippetorWebViewHandler {
       const description =
           typeof payload?.description === 'string' ? payload.description : '';
 
+      // v2 shape (`BaseSnippetContent`, R2/storage_snippet.schema.md) has a
+      // `notes[]` array; the pre-v2 shape this extension used to write has
+      // `snippets[]` instead — detect by presence, same "read both, write
+      // only the new shape" policy already used for the envelope itself.
+      if (Array.isArray(payload?.notes)) {
+        const contentMeta: SnippetContentMeta = {
+          schema: typeof payload.schema === 'number' ? payload.schema : 2,
+          version: typeof payload.version === 'number' ? payload.version : 0,
+          created: typeof payload.created === 'number' ? payload.created : Date.now()
+        };
+        return {
+          error: '',
+          snippets: this.notesToSnippetItems(payload.notes),
+          head: {title, description, path: absolutePath},
+          origin,
+          contentMeta
+        };
+      }
+
       return {
         error: '',
-        snippets: Array.isArray(payload?.snippets) ? payload.snippets : [],
+        snippets: this.legacySnippetsToSnippetItems(Array.isArray(payload?.snippets) ? payload.snippets : []),
         head: {title, description, path: absolutePath},
         origin
       };

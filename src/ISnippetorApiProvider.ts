@@ -94,4 +94,17 @@ export interface ISnippetorApiProvider {
    * Update a value in workspace state
    */
   setWorkspaceState(key: string, value: any): void;
+
+  /**
+   * Look up the git repository (if any) that owns a given absolute path, via
+   * VS Code's built-in `vscode.git` extension (see
+   * react_snippet_framework/docs/Plan.content-schema-v2-migration-vscode.md
+   * §1d). Takes a plain path rather than a `vscode.Uri` so
+   * `SnippetViewHandler` doesn't need to import `vscode` to call it.
+   *
+   * Returns `undefined` when the path isn't inside a git repo, or the repo
+   * has no `origin` remote -- both are honest "not tracked" states, not
+   * errors.
+   */
+  getGitRepositoryInfo(absolutePath: string): { remoteUrl?: string; commitSha?: string; branchName?: string } | undefined;
 }

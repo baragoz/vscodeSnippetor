@@ -4,8 +4,8 @@
 
 **A lightweight VS Code extension to save and share your knowledge about source code.**
 
-[](https://www.google.com/search?q=https://marketplace.visualstudio.com/items%3FitemName%3Dyour-publisher-name.snippetor)
-[](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Status: early development](https://img.shields.io/badge/status-early%20development-orange)
 
 ## 🚀 What is Snippetor?
 
@@ -40,11 +40,25 @@ sharing/backup method you already use for the rest of the project, such as:
   * A **Git repository** (recommended for teams\!)
   * A **Google Drive** or **Dropbox** synced folder
 
+## 📌 Status
+
+Snippetor is in **early development** (version 0.0.5, not yet published to the Marketplace).
+Currently working:
+
+  * Capturing, editing, reordering and saving snippets from the Working Snippet sidebar panel.
+  * Opening `*.snippet.json` (and legacy `*.snippet`) files directly into the sidebar.
+  * The UML diagram editor (`.umlsync`) and the Claude Code skills installer.
+
+The snippet file format is the v2 envelope shared with `snippetor_cli`; older files still
+load and are migrated on the next save (see [AGENTS.md](AGENTS.md) for details).
+
 ## 🛠 Features
 
   * **Snippet files live in your project:** No custom storage folder, no config — just `*.snippet.json` files wherever you save them.
   * **Opens straight into the sidebar:** Double-click a `.snippet.json` file and it loads directly into the Working Snippet panel — no JSON tab to wade through.
   * **Jump to the exact line:** Every snippet item links back to a real file and line number in your project.
+  * **Git-aware:** On save, the repository's `origin` URL, branch and current commit are recorded in the snippet (via VS Code's built-in Git extension, which is now a required dependency). Snippets outside a git repo simply have no repo info.
+  * **Sync-friendly:** Sync metadata written by `snippetor_cli` is preserved when you re-save the same file.
   * **Lightweight and privacy-first:** No telemetry, no remote servers, no usage data collected.
   * **Visual UML diagrams:** Create and edit class, package, component, state, and sequence diagrams in a native editor tab (`.umlsync` files).
 
@@ -87,8 +101,8 @@ replaced an earlier MCP-server-based approach for diagrams — see
 Make sure you have **Node.js** installed, then clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/your-username/snippetor.git
-cd snippetor
+git clone <repository-url>
+cd vscodeSnippetor
 npm install
 ```
 
@@ -126,4 +140,4 @@ Feel free to:
 
 ## 📃 License
 
-This project is licensed under the **MIT License**. You are free to use, modify, and distribute this software for both personal and commercial projects.
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file. You are free to use, modify, and distribute this software for both personal and commercial projects.
